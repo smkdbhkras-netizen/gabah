@@ -1,942 +1,596 @@
-/*
- * TIMBANGAN GABAH v3 - KADAR AIR + HARGA RUPIAH + KIRIM WHATSAPP
- * Board   : NodeMCU ESP8266 (ESP-12E)
- * Sensor  : Capacitive Soil Moisture Sensor v2.0.0, Loadcell 10kg + HX711
- * Tampilan: LCD I2C 16x2 (default) atau 20x4 (ubah LCD_20X4 jadi 1)
- *
- * Library: HX711 (bogde), LiquidCrystal I2C (Frank de Brabander)
- *
- * WIRING
- *  HX711   : VCC->3V3, GND->GND, DT->D5, SCK->D6
- *  Soil    : VCC->3V3, GND->GND, AOUT->A0
- *  LCD I2C : VCC->VIN(5V), GND->GND, SDA->D2, SCL->D1
- *  SATU TOMBOL : D7 -> GND
- *  Buzzer (opsional, aktif): + -> D0, - -> GND  (set PAKAI_BUZZER 1)
- *
- * CARA PAKAI (SATU TOMBOL, HITUNG JUMLAH TEKAN)
- *  1. Taruh gabah di timbangan, tunggu muncul tanda centang (berat stabil).
- *  2. Tekan 1x -> hasil dihitung & dikirim ke WhatsApp.
- *  3. Layar hasil tampil bergantian (Berat, Kadar Air, Harga/kg, Total).
- *  4. Tekan 2x -> TARE / siap timbang baru (aktif setelah hasil timbang keluar).
- *  5. Tekan 3x -> kirim ulang WA hasil terakhir.
- *  6. Tekan 4x -> NOL-KAN timbangan (kosongkan / wadah kosong; tersimpan permanen).
- *     Nol tidak berubah saat tare/restart, jadi aman walau ada beban saat reset.
- *     (Jika WA gagal, tekan 1x juga akan mengirim ulang.)
- *  Tekan berurutan dengan cepat; setelah jeda sebentar, alat membaca jumlah tekan.
- *  TAHAN 3 DETIK -> RESTART alat (pengganti tombol RST di NodeMCU).
- *  Data juga dikirim ke web app (Google Sheet + dashboard). Harga diatur dari dashboard.
- *
- * SERIAL MONITOR (115200):
- *  cal 1000 -> kalibrasi timbangan dgn beban 1000 gram
- *  adc      -> tampilkan nilai ADC sensor kadar air
- */
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#166534">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23166534'/><text x='50' y='72' font-size='64' text-anchor='middle'>🌾</text></svg>">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background: #f0fdf4; }
+  .card { background: #fff; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .tab-on { background: #166534; color: #fff; }
+  html { -webkit-tap-highlight-color: transparent; }
+  button { transition: transform .08s, filter .15s, background-color .15s, opacity .15s; }
+  button:active:not(:disabled) { transform: scale(.95); filter: brightness(.9); }       /* terasa "tertekan" */
+  button.busy { pointer-events: none; opacity: .75; }                                   /* sedang diproses */
+  button.busy::after { content: ""; display: inline-block; width: 1em; height: 1em; margin-left: .5em; vertical-align: -.15em;
+    border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .kedip { animation: kd 1.2s; }
+  @keyframes kd { 0% { box-shadow: 0 0 0 0 rgba(250,204,21,.95); } 100% { box-shadow: 0 0 0 26px rgba(250,204,21,0); } }
+  #bar { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: #4ade80; z-index: 100; opacity: 0; transition: width .3s, opacity .3s; }
+  #toast { position: fixed; left: 50%; bottom: 6rem; transform: translate(-50%, 20px); background: #14532d; color: #fff; padding: .7rem 1.1rem;
+    border-radius: 9999px; font-size: .9rem; font-weight: 600; opacity: 0; pointer-events: none; transition: .25s; z-index: 100; max-width: 90vw; text-align: center; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.err { background: #991b1b; }
+  @media (min-width: 768px) { #toast { bottom: 2rem; } }
+  button { touch-action: manipulation; }
+  input, select, textarea { font-size: 16px; }              /* cegah zoom otomatis di HP */
+  main { padding-bottom: 6.5rem; }
+  /* menu bawah ala aplikasi di HP */
+  #menu { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; display: grid; grid-template-columns: repeat(5, 1fr);
+    background: #fff; border-top: 1px solid #bbf7d0; padding: .35rem .3rem calc(.35rem + env(safe-area-inset-bottom)); box-shadow: 0 -4px 16px rgba(0,0,0,.07); }
+  #menu button { display: flex; flex-direction: column; align-items: center; gap: .1rem; font-size: .68rem; font-weight: 600; color: #64748b; padding: .35rem 0; border-radius: .8rem; }
+  #menu button .ic { font-size: 1.3rem; line-height: 1; }
+  #menu button.on { color: #166534; background: #dcfce7; }
+  @media (min-width: 768px) {
+    main { padding-bottom: 1rem; }
+    #menu { position: static; display: flex; gap: .5rem; background: none; border: 0; box-shadow: none; padding: 0; }
+    #menu button { flex-direction: row; gap: .4rem; font-size: .875rem; padding: .5rem 1rem; border-radius: 9999px; background: #fff; }
+    #menu button.on { background: #166534; color: #fff; }
+  }
+  .live-hero{background:radial-gradient(circle at 15% 0%,#16a34a 0,#14532d 55%,#052e16 100%);transition:filter .5s}
+  .live-hero.off{filter:grayscale(.85) brightness(.8)}
+  .big{font-size:clamp(3.5rem,15vw,6.5rem);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+  .dot{width:.65rem;height:.65rem;border-radius:9999px;background:#4ade80;animation:pls 1.6s infinite}
+  .dot.off{background:#f87171;animation:none}
+  @keyframes pls{0%{box-shadow:0 0 0 0 rgba(74,222,128,.7)}70%{box-shadow:0 0 0 10px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+  .chip{display:inline-block;padding:.3rem .9rem;border-radius:9999px;background:rgba(255,255,255,.16);font-size:.85rem;font-weight:600}
+</style>
+</head>
+<body class="text-slate-800">
+<div id="bar"></div><div id="toast"></div>
 
-#include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
-#include <WiFiClientSecure.h>
-WiFiClientSecure liveClient;      // koneksi permanen khusus data live (hemat waktu handshake)
-#include <Wire.h>
-#include <time.h>
-#include <LiquidCrystal_I2C.h>
-#include "HX711.h"
-#include <EEPROM.h>
+<!-- LOGIN -->
+<div id="login" class="min-h-screen flex items-center justify-center p-4">
+  <div class="card p-8 w-full max-w-sm text-center">
+    <div class="text-5xl mb-2">🌾</div>
+    <h1 class="text-xl font-bold text-green-800">Timbangan Gabah</h1>
+    <p class="text-sm text-slate-500 mb-5">Masukkan PIN untuk melihat data</p>
+    <input id="pin" type="password" inputmode="numeric" placeholder="PIN"
+      class="w-full text-center text-2xl tracking-widest border rounded-xl p-3 mb-3 focus:outline-green-600"
+      onkeydown="if(event.key==='Enter')masuk()">
+    <button onclick="masuk()" class="w-full bg-green-700 hover:bg-green-800 text-white font-semibold rounded-xl p-3">Masuk</button>
+    <p id="errLogin" class="text-red-600 text-sm mt-3 h-5"></p>
+  </div>
+</div>
 
-// ================== PENGATURAN (WAJIB DISESUAIKAN) ==================
-const char* WIFI_SSID    = "KANTOR SMK";
-const char* WIFI_PASS    = "smkdbh123";
-const char* FONNTE_TOKEN = "Qm8cP2jTQPkp9zyFscDR";
-const char* NOMOR_WA     = "6285821506800";   // format 62..., tanpa + / 0
+<!-- APLIKASI -->
+<div id="app" class="hidden">
+  <header class="bg-gradient-to-r from-green-800 to-green-600 text-white px-4 py-5">
+    <div class="max-w-5xl mx-auto flex items-center justify-between">
+      <div>
+        <div class="text-xs opacity-80">Dashboard</div>
+        <h1 id="judul" class="text-xl font-bold">🌾 Timbangan Gabah</h1>
+      </div>
+      <button onclick="muat()" class="bg-white/20 hover:bg-white/30 rounded-lg px-3 py-2 text-sm">⟳ Muat ulang</button>
+    </div>
+  </header>
 
-// Web app (Apps Script): isi setelah Deploy. API_KEY ada di dashboard > Pengaturan
-const char* WEB_URL = "https://script.google.com/macros/s/AKfycbyYMJN_7Tg9fGBiWSnJjSA3ITBinJ7o3nAWiIncbzYomSrYI3oX_sOWZEqR2lcmYw78HQ/exec";
-const char* API_KEY = "0351964d129a49df";
+  <main class="max-w-5xl mx-auto p-4 space-y-4">
+    <nav id="menu">
+      <button id="t-live" onclick="tab('live')"><span class="ic">🔴</span><span>Live</span></button>
+      <button id="t-dash" onclick="tab('dash')"><span class="ic">📊</span><span>Ringkasan</span></button>
+      <button id="t-riwayat" onclick="tab('riwayat')"><span class="ic">🧾</span><span>Riwayat</span></button>
+      <button id="t-ket" onclick="tab('ket')"><span class="ic">📋</span><span>Ketentuan</span></button>
+      <button id="t-atur" onclick="tab('atur')"><span class="ic">⚙️</span><span>Atur</span></button>
+    </nav>
 
-// LCD: 0 = 16x2, 1 = 20x4
-#define LCD_20X4  0
-#define LCD_ADDR  0x27
+    <!-- LIVE -->
+    <section id="p-live" class="space-y-4">
+      <div id="lHero" class="live-hero card p-5 md:p-7 text-white off">
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2"><span id="lDot" class="dot off"></span><span id="lOn">Menghubungkan...</span></div>
+          <div id="lInfo" class="opacity-70"></div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-6 items-center mt-4">
+          <div>
+            <div class="text-xs uppercase tracking-widest opacity-70">Berat</div>
+            <div class="flex items-end gap-2">
+              <span id="lBerat" class="big">0.000</span><span id="lSat" class="text-2xl mb-3 opacity-80">kg</span>
+              <span id="lTren" class="text-3xl mb-3"></span>
+            </div>
+            <span id="lStatus" class="chip">Menunggu alat...</span>
+            <div id="lAksi" class="text-xs mt-2 opacity-90"></div>
+          </div>
+          <div class="text-center">
+            <div class="text-xs uppercase tracking-widest opacity-70">Kadar air</div>
+            <svg viewBox="0 0 200 125" class="w-full max-w-xs mx-auto">
+              <path d="M 20 100 A 80 80 0 0 1 180 100" stroke="rgba(255,255,255,.12)" stroke-width="14" fill="none"/>
+              <g id="gZona"></g>
+              <g id="gJarum" style="transform-origin:100px 100px;transform:rotate(-90deg);transition:transform .8s cubic-bezier(.2,.9,.2,1)">
+                <line x1="100" y1="100" x2="100" y2="32" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+                <circle cx="100" cy="100" r="6" fill="#fff"/>
+              </g>
+              <text x="20" y="120" text-anchor="middle" font-size="9" fill="#fff" opacity=".6">10</text>
+              <text x="180" y="120" text-anchor="middle" font-size="9" fill="#fff" opacity=".6">35</text>
+            </svg>
+            <div class="flex items-center justify-center gap-3 -mt-2">
+              <span id="lKa" class="text-4xl font-extrabold">-</span><span id="lMutu" class="chip">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card p-4 flex flex-wrap items-center gap-3">
+        <div class="flex-1 min-w-[12rem]"><div class="font-semibold text-sm">Lokasi pembelian</div><div id="lokInfo" class="text-xs text-slate-500">-</div></div>
+        <div class="flex rounded-xl overflow-hidden border border-green-700 text-sm font-semibold">
+          <button id="bLokPetani" onclick="pilihLokasi('petani')" class="px-4 py-2">🌾 Di Petani</button>
+          <button id="bLokGiling" onclick="pilihLokasi('penggilingan')" class="px-4 py-2">🏭 Di Penggilingan</button>
+        </div>
+      </div>
+      <div id="hCard" class="card p-4 flex flex-wrap items-center gap-3">
+        <div class="flex-1 min-w-[12rem]"><div class="font-semibold text-sm">Kadar hampa (%) - isi manual</div>
+          <div class="text-xs text-slate-500">Tidak terukur sensor. Wajib diisi sebelum menekan tombol alat (isi 0 jika gabah bersih). Kembali ke "belum diisi" setelah transaksi tersimpan.</div></div>
+        <input id="hIn" type="number" step="0.1" min="0" placeholder="0" class="w-24 border rounded-xl p-2 text-center text-lg">
+        <button onclick="terapkanHampa()" class="bg-green-700 text-white rounded-xl px-4 py-2 font-semibold">Terapkan</button>
+        <button onclick="terapkanHampa(0)" class="bg-white border border-green-700 text-green-800 rounded-xl px-4 py-2 font-semibold">Bersih (0%)</button>
+        <span id="hMsg" class="text-xs text-slate-500"></span>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="card p-4"><div class="text-xs text-slate-500">Harga/kg</div><div id="lHarga" class="text-xl font-bold">-</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Estimasi total</div><div id="lTotal" class="text-xl font-bold text-green-700">-</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Rafaksi</div><div id="lRaf" class="text-xl font-bold">-</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Kadar hampa</div><div id="lHamp" class="text-xl font-bold">-</div></div>
+      </div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div class="card p-4"><div class="font-semibold text-sm mb-2">Grafik berat (60 data terakhir)</div><svg id="sB" viewBox="0 0 300 60" preserveAspectRatio="none" class="w-full h-24"></svg></div>
+        <div class="card p-4"><div class="font-semibold text-sm mb-2">Grafik kadar air (60 data terakhir)</div><svg id="sK" viewBox="0 0 300 60" preserveAspectRatio="none" class="w-full h-24"></svg></div>
+      </div>
+    </section>
 
-// Buzzer opsional (0 = tidak dipakai, 1 = dipakai di pin D0)
-#define PAKAI_BUZZER 0
+    <!-- RINGKASAN -->
+    <section id="p-dash" class="space-y-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="card p-4"><div class="text-xs text-slate-500">Transaksi hari ini</div><div id="sTrx" class="text-2xl font-bold">0</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Berat hari ini</div><div id="sBerat" class="text-2xl font-bold">0</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Total hari ini</div><div id="sTotal" class="text-2xl font-bold text-green-700">Rp0</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Rata-rata kadar air</div><div id="sKA" class="text-2xl font-bold">-</div></div>
+      </div>
+      <div class="card p-4">
+        <div class="font-semibold mb-3">Berat 7 hari terakhir (kg)</div>
+        <div id="grafik" class="flex items-end gap-2 h-40"></div>
+      </div>
+      <div class="card p-4 text-sm text-slate-600" id="sAll"></div>
+    </section>
 
-// Jumlah angka di belakang koma
-#define DESIMAL_KG    3   // contoh: 1.234 kg
-#define DESIMAL_GRAM  1   // contoh: 523.4 g
+    <!-- RIWAYAT -->
+    <section id="p-riwayat" class="hidden space-y-3">
+      <div class="flex gap-2">
+        <input id="cari" oninput="tabel()" placeholder="Cari ID / petani / tanggal..." class="flex-1 border rounded-xl p-3 bg-white">
+        <button onclick="unduh()" class="bg-green-700 text-white rounded-xl px-4 font-semibold">CSV</button>
+      </div>
+      <div id="isiKartu" class="md:hidden space-y-2"></div>
+      <div class="card overflow-x-auto hidden md:block">
+        <table class="w-full text-sm">
+          <thead class="bg-green-50 text-green-900 text-left">
+            <tr><th class="p-3">ID</th><th>Waktu</th><th>Berat</th><th>KA</th><th>Harga/kg</th><th>Total</th><th>Petani</th><th></th></tr>
+          </thead>
+          <tbody id="isi"></tbody>
+        </table>
+      </div>
+    </section>
 
-// Harga Pembelian Pemerintah GKP (diatur dari dashboard):
-//  dasar: di petani 6.500 / di penggilingan 6.700 (Rp/kg)
-//  KA <= 25 & hampa <= 10   -> GKP   : harga penuh
-//  KA <= 25 & hampa 11-15   -> GLK-1 : rafaksi 300
-//  KA 26-30 & hampa <= 10   -> GLK-2 : rafaksi 425
-//  KA 26-30 & hampa 11-15   -> GLK-3 : rafaksi 750
-//  KA > 30 atau hampa > 15  -> di luar ketentuan (harga 0)
-// Kadar hampa TIDAK terukur sensor: diisi petugas di dashboard (tab Live).
-float HARGA_DASAR = 6500;
-float KA_STANDAR  = 25.0;
-float KA_MAKS     = 30.0;
-float HAMPA       = -1;                // % (dari dashboard); -1 = belum diisi
-const float HAMPA_STD = 10.0, HAMPA_MAKS = 15.0;
-float RAF_HAMPA = 300, RAF_KA = 425, RAF_BOTH = 750;
-int LOKASI = 0, hLokasi = 0;          // 0 = di petani, 1 = di penggilingan
-String pesanWeb = "";                 // tanda di LCD saat ada perubahan dari web
-bool pesanWebAda = false, sudahSinkron = false;
+    <!-- KETENTUAN -->
+    <section id="p-ket" class="hidden space-y-4">
+      <div class="card p-5">
+        <h2 class="font-bold text-lg text-green-800">Ketentuan Harga Pembelian Pemerintah (HPP) - Gabah Kering Panen (GKP)</h2>
+        <p class="text-sm text-slate-600 mt-1">Harga beli gabah ditentukan oleh <b>dua pengukuran</b>. Semakin kering dan bersih gabah, semakin tinggi harganya.</p>
+        <div class="grid md:grid-cols-3 gap-3 mt-4 text-sm">
+          <div class="rounded-xl bg-green-50 p-4"><div class="font-bold">① Kadar air (KA)</div><div class="text-slate-600 mt-1">Persentase air dalam gabah. <b>Diukur otomatis</b> oleh sensor alat.</div></div>
+          <div class="rounded-xl bg-yellow-50 p-4"><div class="font-bold">② Kadar hampa</div><div class="text-slate-600 mt-1">Persentase butir hampa/kotoran dalam gabah. <b>Diisi petugas</b> di tab Live (tidak bisa diukur sensor).</div></div>
+          <div class="rounded-xl bg-slate-100 p-4"><div class="font-bold">③ Kualitas &amp; harga</div><div class="text-slate-600 mt-1">Dari kedua nilai itu ditentukan kualitas (GKP / GLK-1 / GLK-2 / GLK-3), lalu <b>harga = harga dasar - rafaksi</b>.</div></div>
+        </div>
+      </div>
+      <div class="card p-5 text-sm">
+        <div class="font-semibold text-base text-green-800">Apa beda "di Petani" dan "di Penggilingan"?</div>
+        <p class="text-slate-600 mt-1">Perbedaannya hanya pada <b>tempat gabah diserahkan</b>, yang menentukan siapa menanggung biaya angkut. Syarat kualitas (kadar air &amp; kadar hampa) dan rafaksinya <b>sama persis</b>; yang berbeda hanya harga dasarnya (selisih <b id="ketSelisih">-</b>/kg).</p>
+        <div class="grid md:grid-cols-2 gap-3 mt-3">
+          <div class="rounded-xl bg-green-50 p-4"><div class="font-bold">🌾 GKP di Petani</div>
+            <ul class="list-disc pl-5 text-slate-600 mt-1 space-y-1">
+              <li>Gabah diserahkan <b>di tempat petani</b> (sawah, rumah, atau gudang kelompok tani).</li>
+              <li>Pembeli yang <b>menjemput</b> dan menanggung biaya angkut ke penggilingan.</li>
+              <li>Harga dasar <b>lebih rendah</b>.</li>
+              <li>Pilih ini jika <b>Anda yang mengambil</b> gabah ke petani.</li>
+            </ul></div>
+          <div class="rounded-xl bg-yellow-50 p-4"><div class="font-bold">🏭 GKP di Penggilingan</div>
+            <ul class="list-disc pl-5 text-slate-600 mt-1 space-y-1">
+              <li>Gabah <b>diantar sampai ke penggilingan</b> (tempat timbangan ini berada).</li>
+              <li>Biaya angkut dari petani ke penggilingan <b>ditanggung pengantar</b>.</li>
+              <li>Harga dasar <b>lebih tinggi</b> sebagai pengganti biaya angkut tersebut.</li>
+              <li>Pilih ini jika <b>petani mengantar</b> gabah ke tempat Anda.</li>
+            </ul></div>
+        </div>
+        <p class="text-xs text-slate-500 mt-3">Lokasi dipilih di tab Pengaturan dan berlaku untuk semua timbangan sampai diganti. Ini penjelasan umum; untuk batasan resmi, rujuk teks peraturan HPP yang berlaku.</p>
+      </div>
+      <div id="ketTabel" class="grid md:grid-cols-2 gap-4"></div>
+      <div class="card p-5 text-sm space-y-2">
+        <div class="font-semibold">Catatan penting</div>
+        <ul class="list-disc pl-5 text-slate-600 space-y-1">
+          <li><b>Rafaksi</b> = potongan harga per kg karena gabah kurang kering dan/atau kurang bersih.</li>
+          <li>Kadar air <b>di atas batas diterima</b> atau kadar hampa <b>di atas 15%</b> = <b>di luar ketentuan harga</b> (alat memberi harga 0, negosiasikan terpisah).</li>
+          <li>Sistem menganggap kadar air <b>di atas batas penuh</b> (mis. 25,1%) sudah kena rafaksi. Batas dan nilai rafaksi bisa diubah di tab Pengaturan.</li>
+          <li>Alat <b>tidak menyimpan transaksi</b> sebelum kadar hampa diisi (isi 0 jika gabah bersih).</li>
+        </ul>
+        <div id="ketContoh" class="rounded-xl bg-green-50 p-3 text-slate-700"></div>
+      </div>
+      <div class="card p-5 space-y-3">
+        <div class="font-semibold">Cek cepat harga</div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <label>Kadar air (%)<input id="cKA" type="number" step="0.1" oninput="ketHitung()" class="w-full border rounded-lg p-2 mt-1"></label>
+          <label>Kadar hampa (%)<input id="cHP" type="number" step="0.1" oninput="ketHitung()" class="w-full border rounded-lg p-2 mt-1"></label>
+          <label>Berat (kg)<input id="cKg" type="number" step="0.1" oninput="ketHitung()" class="w-full border rounded-lg p-2 mt-1"></label>
+          <label>Lokasi<select id="cLok" onchange="ketHitung()" class="w-full border rounded-lg p-2 mt-1"><option value="petani">Di petani</option><option value="penggilingan">Di penggilingan</option></select></label>
+        </div>
+        <div id="cHasil" class="rounded-xl bg-slate-100 p-3 font-semibold">Isi kadar air dan kadar hampa.</div>
+      </div>
+    </section>
 
-// Skala bar kadar air di LCD (%)
-const float KA_BAR_MIN = 10.0;
-const float KA_BAR_MAX = 35.0;
+    <!-- PENGATURAN -->
+    <section id="p-atur" class="hidden grid md:grid-cols-2 gap-4">
+      <div class="card p-5 space-y-3">
+        <div class="font-semibold">Harga Pembelian Pemerintah (GKP)</div>
+        <label class="block text-sm">Nama usaha<input id="aNama" type="text"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Lokasi pembelian<select id="aLokasi" class="w-full border rounded-lg p-2 mt-1"><option value="petani">Di petani</option><option value="penggilingan">Di penggilingan</option></select><span class="text-xs text-slate-500">Di petani: Anda yang menjemput gabah. Di penggilingan: petani mengantar ke tempat Anda. Bisa juga diganti cepat dari tab Live. Penjelasan lengkap di tab Ketentuan.</span></label>
+        <label class="block text-sm">Harga GKP di petani (Rp/kg)<input id="aHP" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Harga GKP di penggilingan (Rp/kg)<input id="aHG" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">KA maks harga penuh (%)<input id="aKA" type="number" step="0.1" class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">KA maks diterima (%)<input id="aLembab" type="number" step="0.1" class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Rafaksi hampa 11-15% (GLK-1, Rp/kg)<input id="aRH" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Rafaksi KA 26-30% (GLK-2, Rp/kg)<input id="aRK" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Rafaksi KA 26-30% + hampa 11-15% (GLK-3, Rp/kg)<input id="aRB" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">PIN baru (kosongkan jika tidak diganti)<input id="aPin" type="password" inputmode="numeric" class="w-full border rounded-lg p-2 mt-1"></label>
+        <button onclick="simpanAtur()" class="w-full bg-green-700 text-white font-semibold rounded-xl p-3">Simpan pengaturan</button>
+        <p class="text-xs text-slate-500">Alat mengambil harga ini otomatis saat menyala, setiap mulai timbang baru, dan tiap 2 menit.</p>
+      </div>
+      <div class="card p-5 space-y-2">
+        <div class="font-semibold">Sambungan alat</div>
+        <p class="text-sm text-slate-600">Salin ke kode ESP8266:</p>
+        <div class="text-xs bg-slate-100 rounded-lg p-3 break-all">
+          <div class="font-semibold">API_KEY</div><div id="kKey" class="mb-2"></div>
+          <div class="font-semibold">WEB_URL</div><div id="kUrl"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
 
-// Berat minimum agar dianggap ada gabah (kg) -> 0.005 = 5 gram
-const float BERAT_MIN = 0.005;
-
-// Kalibrasi timbangan (tetap)
-float CAL_FACTOR = 226.946;
-
-// Kalibrasi kadar air: {ADC, KA%}, URUT ADC dari BESAR ke KECIL (CONTOH)
-struct TitikKal { float adc; float ka; };
-TitikKal KAL[] = {
-  {700, 10.0},
-  {650, 14.0},
-  {600, 18.0},
-  {550, 22.0},
-  {500, 26.0},
-  {450, 30.0}
+<script>
+// GANTI dengan URL Web App Apps Script Anda (Deploy > Manage deployments, berakhiran /exec)
+const API_URL = 'https://script.google.com/macros/s/AKfycbyYMJN_7Tg9fGBiWSnJjSA3ITBinJ7o3nAWiIncbzYomSrYI3oX_sOWZEqR2lcmYw78HQ/exec';
+let TOKEN = '', DATA = null;
+const $ = id => document.getElementById(id);
+const runInti = async (fn, ...args) => {
+  let r;
+  try {
+    r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn, args }) });
+  } catch (e) { throw new Error('Tidak bisa terhubung ke server.'); }
+  let j;
+  try { j = JSON.parse(await r.text()); } catch (e) { throw new Error('Server sibuk, coba lagi sebentar.'); }
+  if (!j.ok) throw new Error(j.error || 'Terjadi kesalahan.');
+  return j.data;
 };
-// ====================================================================
 
-#define PIN_HX_DT   D5
-#define PIN_HX_SCK  D6
-#define PIN_TOMBOL  D7
-#define PIN_SOIL    A0
-
-// Jeda maksimal antar tekanan (ms). Setelah jeda ini habis tanpa tekanan baru,
-// jumlah tekanan dibaca dan aksinya dijalankan. Perbesar jika sulit menekan 2x/3x.
-#define TAP_JEDA_MS 600
-
-// Tekan lama: > TAHAN_BATAL_MS bukan hitungan tekan lagi (dibatalkan),
-// peringatan muncul di TAHAN_PERINGATAN_MS, alat restart di TAHAN_RESET_MS.
-#define TAHAN_BATAL_MS      800
-#define TAHAN_PERINGATAN_MS 1500
-#define TAHAN_RESET_MS      3000
-#define PIN_BUZZER  D0
-
-#if LCD_20X4
-  #define LCD_COLS 20
-  #define LCD_ROWS 4
-#else
-  #define LCD_COLS 16
-  #define LCD_ROWS 2
-#endif
-
-#define JUMLAH_HALAMAN 6
-
-LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
-HX711 scale;
-
-// Karakter khusus LCD (0-2 ikon, 3-6 isi bar 1-4 kolom)
-uint8_t ikonWifi[8]  = {0b00000, 0b01110, 0b10001, 0b00100, 0b01010, 0b00000, 0b00100, 0b00000};
-uint8_t ikonPutus[8] = {0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b00000, 0b00100, 0b00000};
-uint8_t ikonCek[8]   = {0b00000, 0b00001, 0b00010, 0b10100, 0b01000, 0b00000, 0b00000, 0b00000};
-uint8_t bar1[8] = {0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000};
-uint8_t bar2[8] = {0b11000, 0b11000, 0b11000, 0b11000, 0b11000, 0b11000, 0b11000, 0b11000};
-uint8_t bar3[8] = {0b11100, 0b11100, 0b11100, 0b11100, 0b11100, 0b11100, 0b11100, 0b11100};
-uint8_t bar4[8] = {0b11110, 0b11110, 0b11110, 0b11110, 0b11110, 0b11110, 0b11110, 0b11110};
-
-bool terkunci = false;       // true = hasil final sudah dihitung
-bool waOK = false;
-bool webOK = false;
-String idTrx = "-";
-unsigned long tSetting = 0;
-float hBerat = 0, hKA = 0, hHargaKg = 0, hHampa = 0, hRaf = 0;
-long  hTotal = 0;
-float kgTerakhir = 0, kgSebelum = 0;
-int stabilCount = 0;
-bool stabilLama = false;
-unsigned long tHalaman = 0, tBaca = 0;
-
-unsigned long tahanMulai = 0;
-bool peringatanTahan = false;
-
-// Penghitung tekan memakai interrupt supaya tidak terlewat saat alat sedang membaca sensor
-volatile uint8_t isrTekan = 0;
-volatile unsigned long isrEdge = 0;
-volatile unsigned long isrTerakhir = 0;
-
-void ICACHE_RAM_ATTR isrTombol() {
-  unsigned long t = millis();
-  // hitung hanya sisi turun (tombol ditekan) yang >40 ms setelah perubahan sebelumnya
-  if (digitalRead(PIN_TOMBOL) == LOW && (t - isrEdge) > 40) {
-    if (isrTekan < 9) isrTekan++;
-    isrTerakhir = t;
+// ---- umpan balik klik: tombol berputar saat diproses, bilah progres di atas, notifikasi singkat ----
+let lastBtn = null, lastBtnT = 0, runSenyap = false, sibuk = 0, barT = 0, toastT = 0;
+document.addEventListener('click', ev => {
+  const b = ev.target.closest ? ev.target.closest('button') : null;
+  if (b && !b.closest('#menu')) { lastBtn = b; lastBtnT = Date.now(); }
+}, true);
+function barMulai() { const e = $('bar'); e.style.opacity = 1; e.style.width = '30%'; clearTimeout(barT); barT = setTimeout(() => { e.style.width = '70%'; }, 400); }
+function barSelesai() { const e = $('bar'); clearTimeout(barT); e.style.width = '100%'; setTimeout(() => { e.style.opacity = 0; setTimeout(() => { e.style.width = 0; }, 300); }, 250); }
+function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = 'show' + (err ? ' err' : ''); clearTimeout(toastT); toastT = setTimeout(() => { t.className = ''; }, 2600); }
+async function run(fn, ...args) {
+  const diam = runSenyap || fn === 'ambilLive';     // pemuatan latar belakang tidak memunculkan indikator
+  let b = null;
+  if (!diam) {
+    sibuk++; barMulai();
+    if (lastBtn && Date.now() - lastBtnT < 20000) { b = lastBtn; lastBtn = null; b.classList.add('busy'); }
   }
-  isrEdge = t;
+  try { return await runInti(fn, ...args); }
+  finally { if (b) b.classList.remove('busy'); if (!diam && --sibuk === 0) barSelesai(); }
 }
-int halaman = 0;
+const rp = n => 'Rp' + Math.round(n || 0).toLocaleString('id-ID');
+const brt = kg => kg >= 1 ? kg.toFixed(3) + ' kg' : (kg * 1000).toFixed(1) + ' g';
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const mutuWarna = k => k <= DATA.pengaturan.kaStandar ? 'bg-green-100 text-green-800'
+  : k <= DATA.pengaturan.kaLembab ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800';
 
-// ---------- Utilitas ----------
-void bip(int n, int ms = 80) {
-#if PAKAI_BUZZER
-  for (int i = 0; i < n; i++) {
-    digitalWrite(PIN_BUZZER, HIGH); delay(ms);
-    digitalWrite(PIN_BUZZER, LOW);  delay(ms);
+async function masuk() {
+  $('errLogin').textContent = '';
+  try { TOKEN = await run('login', $('pin').value); $('login').classList.add('hidden'); $('app').classList.remove('hidden'); tab('live'); muat(); }
+  catch (e) { $('errLogin').textContent = e.message || 'Gagal masuk.'; }
+}
+
+let sedangMuat = false;
+// diam = true: muat ulang di latar belakang (tanpa alert, tanpa menimpa isian form Pengaturan)
+async function muat(diam) {
+  if (sedangMuat) return;
+  sedangMuat = true;
+  runSenyap = !!diam;
+  const pr = run('ambilData', TOKEN);
+  runSenyap = false;
+  try { DATA = await pr; }
+  catch (e) { sedangMuat = false; if (diam && !/Sesi/.test(e.message || '')) return; alert(e.message); location.reload(); return; }
+  sedangMuat = false;
+  const p = DATA.pengaturan;
+  $('judul').textContent = '🌾 ' + p.namaUsaha;
+  document.title = p.namaUsaha;
+  ringkas(); tabel();
+  if (!diam) { $('aNama').value = p.namaUsaha; $('aLokasi').value = p.lokasi; $('aHP').value = p.hargaPetani; $('aHG').value = p.hargaPenggiling;
+  $('aKA').value = p.kaStandar; $('aLembab').value = p.kaLembab; $('aRH').value = p.rafHampa; $('aRK').value = p.rafKA; $('aRB').value = p.rafBoth; }
+  $('kKey').textContent = p.apiKey; $('kUrl').textContent = API_URL; ketRender(); pakaiLokasi(p.lokasi); zona(Number(p.kaStandar), Number(p.kaLembab));
+}
+
+function tab(n) {
+  tabAktif = n; mulaiLive(); window.scrollTo({ top: 0 });   // pemantauan berjalan di semua tab
+  ['live', 'dash', 'riwayat', 'ket', 'atur'].forEach(t => {
+    $('p-' + t).classList.toggle('hidden', t !== n);
+    $('t-' + t).className = (t === n ? 'on' : '');
+  });
+}
+
+function ringkas() {
+  const r = DATA.rows, h = DATA.hariIni;
+  const hi = r.filter(x => x.waktu.startsWith(h));
+  const sum = (a, k) => a.reduce((s, x) => s + Number(x[k] || 0), 0);
+  $('sTrx').textContent = hi.length;
+  $('sBerat').textContent = brt(sum(hi, 'berat'));
+  $('sTotal').textContent = rp(sum(hi, 'total'));
+  $('sKA').textContent = hi.length ? (sum(hi, 'ka') / hi.length).toFixed(1) + '%' : '-';
+  $('sAll').textContent = 'Seluruh data: ' + r.length + ' transaksi • ' + brt(sum(r, 'berat')) + ' • ' + rp(sum(r, 'total'));
+
+  const hari = [];
+  for (let i = 6; i >= 0; i--) { const d = new Date(h + 'T00:00:00'); d.setDate(d.getDate() - i); hari.push(d.toISOString().slice(0, 10)); }
+  const nilai = hari.map(t => sum(r.filter(x => x.waktu.startsWith(t)), 'berat'));
+  const mx = Math.max(...nilai, 1);
+  $('grafik').innerHTML = hari.map((t, i) =>
+    '<div class="flex-1 flex flex-col items-center justify-end h-full">' +
+    '<div class="text-xs mb-1">' + (nilai[i] ? nilai[i].toFixed(1) : '') + '</div>' +
+    '<div class="w-full bg-green-600 rounded-t-lg" style="height:' + Math.max(nilai[i] / mx * 100, nilai[i] ? 4 : 1) + '%"></div>' +
+    '<div class="text-xs text-slate-500 mt-1">' + t.slice(8) + '/' + t.slice(5, 7) + '</div></div>').join('');
+}
+
+function tabel() {
+  const q = $('cari').value.toLowerCase();
+  const r = DATA.rows.filter(x => !q || (x.id + x.waktu + x.petani + x.catatan).toLowerCase().includes(q));
+  $('isi').innerHTML = r.length ? r.map(x =>
+    '<tr class="border-t">' +
+    '<td class="p-3 font-semibold">' + esc(x.id) + '</td><td>' + esc(x.waktu) + '</td>' +
+    '<td>' + brt(x.berat) + '</td>' +
+    '<td><span class="px-2 py-1 rounded-full text-xs ' + mutuWarna(x.ka) + '">' + Number(x.ka).toFixed(1) + '%</span></td>' +
+    '<td>' + rp(x.harga) + '</td><td class="font-semibold">' + rp(x.total) + '</td>' +
+    '<td>' + esc(x.petani || '-') + '<div class="text-xs text-slate-400">' + esc(x.catatan) + '</div></td>' +
+    '<td class="whitespace-nowrap pr-3"><button onclick="ubah(\'' + esc(x.id) + '\')" class="px-2">✏️</button>' +
+    '<button onclick="hapus(\'' + esc(x.id) + '\')" class="px-2">🗑️</button></td></tr>').join('')
+    : '<tr><td colspan="8" class="p-6 text-center text-slate-400">Belum ada data</td></tr>';
+  $('isiKartu').innerHTML = r.length ? r.map(x => {
+    const hm = (x.hampa === '' || x.hampa == null || Number(x.hampa) < 0) ? '' : '<span class="text-xs text-slate-500">hampa ' + Number(x.hampa).toFixed(1) + '%</span>';
+    return '<div class="card p-3">' +
+      '<div class="flex justify-between items-start gap-2"><div><div class="font-bold">' + esc(x.id) + '</div><div class="text-xs text-slate-500">' + esc(x.waktu) + '</div></div>' +
+      '<div class="text-right"><div class="text-lg font-extrabold text-green-700">' + rp(x.total) + '</div><div class="text-xs text-slate-500">' + rp(x.harga) + '/kg</div></div></div>' +
+      '<div class="flex flex-wrap items-center gap-2 mt-2"><span class="font-semibold">' + brt(x.berat) + '</span>' +
+      '<span class="px-2 py-1 rounded-full text-xs ' + mutuWarna(x.ka) + '">KA ' + Number(x.ka).toFixed(1) + '%</span>' + hm +
+      (x.mutu ? '<span class="px-2 py-1 rounded-full text-xs bg-slate-100">' + esc(x.mutu) + '</span>' : '') + '</div>' +
+      '<div class="flex items-center justify-between gap-2 mt-2"><div class="text-xs text-slate-500 truncate">' + esc(x.petani || '-') + (x.catatan ? ' • ' + esc(x.catatan) : '') + '</div>' +
+      '<div class="flex gap-2 shrink-0"><button onclick="ubah(\'' + esc(x.id) + '\')" class="w-10 h-10 rounded-lg bg-slate-100">✏️</button>' +
+      '<button onclick="hapus(\'' + esc(x.id) + '\')" class="w-10 h-10 rounded-lg bg-slate-100">🗑️</button></div></div></div>';
+  }).join('') : '<div class="card p-6 text-center text-slate-400">Belum ada data</div>';
+}
+
+async function ubah(id) {
+  const x = DATA.rows.find(r => r.id === id);
+  const petani = prompt('Nama petani / pemilik gabah:', x.petani || ''); if (petani === null) return;
+  const cat = prompt('Catatan:', x.catatan || ''); if (cat === null) return;
+  try { await run('ubahTransaksi', TOKEN, id, petani, cat); toast('✓ Transaksi diperbarui'); muat(); } catch (e) { toast(e.message, true); }
+}
+
+async function hapus(id) {
+  if (!confirm('Hapus transaksi ' + id + '?')) return;
+  try { await run('hapusTransaksi', TOKEN, id); toast('✓ Transaksi dihapus'); muat(); } catch (e) { toast(e.message, true); }
+}
+
+async function simpanAtur() {
+  try {
+    await run('simpanPengaturan', TOKEN, {
+      namaUsaha: $('aNama').value, lokasi: $('aLokasi').value, hargaPetani: $('aHP').value, hargaPenggiling: $('aHG').value,
+      kaStandar: $('aKA').value, kaLembab: $('aLembab').value, rafHampa: $('aRH').value, rafKA: $('aRK').value, rafBoth: $('aRB').value, pinBaru: $('aPin').value
+    });
+    $('aPin').value = ''; toast('✓ Pengaturan tersimpan. Alat memakai harga baru otomatis.'); muat();
+  } catch (e) { toast(e.message, true); }
+}
+
+function unduh() {
+  const baris = [['ID', 'Waktu', 'Berat(kg)', 'KA(%)', 'Harga/kg', 'Total', 'Mutu', 'Petani', 'Catatan', 'Hampa(%)', 'Lokasi']]
+    .concat(DATA.rows.map(x => [x.id, x.waktu, x.berat, x.ka, x.harga, x.total, x.mutu, x.petani, x.catatan, x.hampa, x.lokasi]));
+  const csv = baris.map(b => b.map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' }));
+  a.download = 'timbangan-gabah.csv'; a.click(); toast('✓ CSV diunduh');
+}
+
+// ---------- KETENTUAN ----------
+const KEL = [['GKP', 'Gabah Kering Panen', ''], ['GLK-1', 'GKP di luar kualitas 1', 'rafHampa'],
+             ['GLK-2', 'GKP di luar kualitas 2', 'rafKA'], ['GLK-3', 'GKP di luar kualitas 3', 'rafBoth']];
+const KWARNA = ['bg-green-50', 'bg-yellow-50', 'bg-orange-50', 'bg-red-50'];
+const dasarLok = (p, lok) => Number(lok === 'petani' ? p.hargaPetani : p.hargaPenggiling);
+
+function ketRender() {
+  if (!DATA) return;
+  const p = DATA.pengaturan, std = Number(p.kaStandar), mks = Number(p.kaLembab);
+  const kartu = lok => {
+    const dasar = dasarLok(p, lok);
+    const baris = KEL.map((k, i) => {
+      const raf = k[2] ? Number(p[k[2]]) : 0;
+      const ka = i < 2 ? '≤ ' + std + '%' : (std + 1) + ' - ' + mks + '%', hm = i % 2 === 0 ? '≤ 10%' : '11 - 15%';
+      return '<div class="' + KWARNA[i] + ' rounded-xl p-3 flex items-center justify-between gap-3">' +
+        '<div class="min-w-0"><div class="font-bold">' + k[0] + ' <span class="text-xs font-normal text-slate-500">' + k[1] + '</span></div>' +
+        '<div class="text-xs text-slate-600 mt-1">Air ' + ka + ' • Hampa ' + hm + '</div>' +
+        '<div class="text-xs text-slate-500">' + (raf ? 'Rafaksi ' + rp(raf) + '/kg' : 'Tanpa rafaksi') + '</div></div>' +
+        '<div class="text-right shrink-0"><div class="text-xl font-extrabold text-green-800">' + rp(dasar - raf) + '</div><div class="text-xs text-slate-500">per kg</div></div></div>';
+    }).join('');
+    return '<div class="card overflow-hidden"><div class="p-3 font-semibold bg-green-700 text-white flex justify-between items-center"><span>GKP ' +
+      (lok === 'petani' ? 'di Petani' : 'di Penggilingan') + '</span>' + (p.lokasi === lok ? '<span class="text-xs bg-white/20 rounded-full px-2 py-1">lokasi aktif</span>' : '') +
+      '</div><div class="p-3 space-y-2">' + baris + '</div></div>';
+  };
+  $('ketTabel').innerHTML = kartu('petani') + kartu('penggilingan');
+  $('ketSelisih').textContent = rp(Number(p.hargaPenggiling) - Number(p.hargaPetani));
+  const dsr = dasarLok(p, p.lokasi), r2 = Number(p.rafKA);
+  $('ketContoh').innerHTML = '<b>Contoh:</b> 1.000 kg gabah, kadar air 27%, hampa 8%, ' + (p.lokasi === 'petani' ? 'di petani' : 'di penggilingan') +
+    ' &rarr; GLK-2 &rarr; ' + rp(dsr) + ' - ' + rp(r2) + ' = <b>' + rp(dsr - r2) + '/kg</b> &rarr; total <b>' + rp((dsr - r2) * 1000) + '</b>.';
+  ketHitung();
+}
+
+function ketHitung() {
+  if (!DATA) return;
+  const p = DATA.pengaturan, std = Number(p.kaStandar), mks = Number(p.kaLembab), o = $('cHasil');
+  if ($('cKA').value === '' || $('cHP').value === '') { o.textContent = 'Isi kadar air dan kadar hampa.'; return; }
+  const ka = Number($('cKA').value), hp = Number($('cHP').value), kg = Number($('cKg').value) || 0;
+  if (ka > mks || hp > 15) { o.textContent = '⚠ Di luar ketentuan harga (kadar air > ' + mks + '% atau hampa > 15%).'; return; }
+  const k = KEL[(ka > std ? 2 : 0) + (hp > 10 ? 1 : 0)], raf = k[2] ? Number(p[k[2]]) : 0, h = dasarLok(p, $('cLok').value) - raf;
+  o.textContent = k[0] + ' • ' + rp(h) + '/kg' + (raf ? ' (rafaksi -' + rp(raf) + ')' : '') + (kg ? ' • Total ' + rp(h * kg) : '');
+}
+
+// Muat ulang otomatis: saat kembali ke tab browser, dan tiap 2 menit sebagai cadangan
+document.addEventListener('visibilitychange', () => { if (!document.hidden && TOKEN) muat(true); });
+setInterval(() => { if (TOKEN && !document.hidden) muat(true); }, 120000);
+
+// ---------- LIVE ----------
+const KET_EV = { 1: 'Tekan 1x: hitung & kirim hasil', 2: 'Tekan 2x: tare / timbang baru', 3: 'Tekan 3x: kirim ulang WhatsApp', 4: 'Tekan 4x: nol-kan timbangan' };
+let evSiap = false, lastEvTs = 0, hampaMenunggu = null, hampaMenungguT = 0, lokMenunggu = '', lokMenungguT = 0;
+let hampaTs = 0, lokTs = 0, lokAktif = '', tabAktif = 'live', lastVer = null;
+function pakaiLokasi(l) {
+  const p = DATA ? DATA.pengaturan : null, on = 'px-4 py-2 bg-green-700 text-white', off = 'px-4 py-2 bg-white text-green-800';
+  $('bLokPetani').className = l === 'petani' ? on : off; $('bLokGiling').className = l === 'penggilingan' ? on : off;
+  if (p) { p.lokasi = l; $('lokInfo').textContent = 'Harga dasar ' + rp(dasarLok(p, l)) + '/kg • ' + (l === 'petani' ? 'Anda menjemput gabah' : 'Petani mengantar gabah'); }
+  if (l !== lokAktif) { lokAktif = l; ketRender(); }
+}
+async function pilihLokasi(l) {
+  const lama = lokAktif || 'petani';
+  pakaiLokasi(l); lokTs = Date.now();               // langsung berubah di layar, tidak menunggu server
+  try { await run('setLokasi', TOKEN, l); lokMenunggu = l; lokMenungguT = Date.now(); toast('✓ Lokasi: ' + (l === 'petani' ? 'Di Petani' : 'Di Penggilingan')); }
+  catch (e) { pakaiLokasi(lama); toast(e.message, true); }
+}
+async function terapkanHampa(v0) {
+  const v = v0 !== undefined ? v0 : $('hIn').value;
+  if (v === '') { toast('Isi kadar hampa dulu (isi 0 jika gabah bersih)', true); return; }
+  $('hMsg').textContent = 'Menyimpan...'; $('hIn').value = v;
+  try {
+    await run('setHampa', TOKEN, v); hampaTs = Date.now(); hampaMenunggu = Number(v); hampaMenungguT = Date.now();
+    $('hMsg').textContent = '✓ Tersimpan, alat menerima dalam beberapa detik';
+    toast('✓ Kadar hampa ' + Number(v) + '% tersimpan');
+  } catch (e) { $('hMsg').textContent = ''; toast(e.message, true); }
+}
+let liveOn = false, liveTimer = null, HIST = [], lastTs = 0, tampilB = 0, anim = 0, zonaKey = '';
+function mulaiLive() { if (liveOn) return; liveOn = true; pollLive(); }
+function henti() { liveOn = false; clearTimeout(liveTimer); }
+
+async function pollLive() {
+  if (!liveOn) return;
+  try { tampilLive(await run('ambilLive', TOKEN)); }
+  catch (e) {
+    if (/Sesi/.test(e.message || '')) { alert(e.message); location.reload(); return; }
+    $('lOn').textContent = 'Dashboard terputus, mencoba lagi...'; $('lDot').className = 'dot off';
   }
-#endif
+  liveTimer = setTimeout(pollLive, document.hidden ? 5000 : (tabAktif === 'live' ? 700 : 3000));
 }
 
-void tampil(int baris, String teks) {
-  while ((int)teks.length() < LCD_COLS) teks += ' ';
-  lcd.setCursor(0, baris);
-  lcd.print(teks.substring(0, LCD_COLS));
+function tulisBerat(kg) {
+  if (kg >= 1) { $('lBerat').textContent = kg.toFixed(3); $('lSat').textContent = 'kg'; }
+  else { $('lBerat').textContent = (kg * 1000).toFixed(1); $('lSat').textContent = 'g'; }
+}
+function tween(to) {
+  const from = tampilB, t0 = performance.now(); cancelAnimationFrame(anim);
+  const f = t => {
+    const k = Math.min((t - t0) / 600, 1), e = 1 - Math.pow(1 - k, 3);
+    tampilB = from + (to - from) * e; tulisBerat(tampilB);
+    if (k < 1) anim = requestAnimationFrame(f);
+  };
+  anim = requestAnimationFrame(f);
 }
 
-void ikon(int kolom, int baris, uint8_t kode) {
-  lcd.setCursor(kolom, baris);
-  lcd.write(kode);
+const gp = f => { const a = Math.PI * (1 - f); return (100 + 80 * Math.cos(a)).toFixed(1) + ' ' + (100 - 80 * Math.sin(a)).toFixed(1); };
+const busur = (f1, f2, c) => '<path d="M ' + gp(f1) + ' A 80 80 0 0 1 ' + gp(f2) + '" stroke="' + c + '" stroke-width="14" fill="none"/>';
+const fKA = v => Math.min(Math.max((v - 10) / 25, 0), 1);
+function zona(s, m) {
+  const key = s + '-' + m; if (key === zonaKey) return; zonaKey = key;
+  $('gZona').innerHTML = busur(0, fKA(s), '#22c55e') + busur(fKA(s), fKA(m), '#facc15') + busur(fKA(m), 1, '#ef4444');
 }
 
-void kosongkan(int kolom, int baris) {
-  lcd.setCursor(kolom, baris);
-  lcd.print(' ');
+function spark(id, arr, warna) {
+  const n = arr.length; if (n < 2) { $(id).innerHTML = ''; return; }
+  let lo = Math.min(...arr), hi = Math.max(...arr); if (hi - lo < 0.01) { hi += 0.5; lo -= 0.5; }
+  const pts = arr.map((v, i) => (i / (n - 1) * 300).toFixed(1) + ',' + (55 - (v - lo) / (hi - lo) * 50).toFixed(1));
+  $(id).innerHTML = '<polygon points="0,60 ' + pts.join(' ') + ' 300,60" fill="' + warna + '" opacity=".15"/>' +
+    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + warna + '" stroke-width="2" vector-effect="non-scaling-stroke"/>';
 }
 
-String angka(long v) {                      // 12345 -> 12.345
-  String s = String(v), out = "";
-  int c = 0;
-  for (int i = s.length() - 1; i >= 0; i--) {
-    out = String(s[i]) + out;
-    c++;
-    if (c % 3 == 0 && i > 0) out = "." + out;
+function tampilLive(d) {
+  if (d.ver !== undefined) {                  // ada transaksi/ubah/hapus/pengaturan baru -> muat otomatis
+    if (lastVer !== null && d.ver !== lastVer) muat(true);
+    lastVer = d.ver;
   }
-  return out;
-}
-
-String rupiah(long v) { return "Rp" + angka(v); }
-
-// < 1 kg -> gram, >= 1 kg -> kg
-String fmtBerat(float kg) {
-  if (kg >= 1.0) return String(kg, DESIMAL_KG) + " kg";
-  return String(kg * 1000.0, DESIMAL_GRAM) + " g";
-}
-
-String labelMutu(float ka, float hampa) {
-  if (hampa < 0) return "HMP?";   // kadar hampa belum diisi
-  if (ka > KA_MAKS || hampa > HAMPA_MAKS) return "LUAR";
-  bool air = ka > KA_STANDAR, hmp = hampa > HAMPA_STD;
-  if (air && hmp) return "GLK3";
-  if (air) return "GLK2";
-  if (hmp) return "GLK1";
-  return "GKP";
-}
-
-String urlEncode(const String& s) {
-  String o = "";
-  const char* hex = "0123456789ABCDEF";
-  for (unsigned int i = 0; i < s.length(); i++) {
-    char c = s[i];
-    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') o += c;
-    else { o += '%'; o += hex[(c >> 4) & 0xF]; o += hex[c & 0xF]; }
+  // --- interaksi di alat: tombol fisik ditekan ---
+  const ketEv = d.evt ? (KET_EV[d.evt.ev] || ('Tekan ' + d.evt.ev + 'x')) : '';
+  if (!evSiap) { evSiap = true; lastEvTs = d.evt ? d.evt.ts : 0; }
+  else if (d.evt && d.evt.ts !== lastEvTs) {
+    lastEvTs = d.evt.ts; toast('🔘 Alat: ' + ketEv);
+    const h = $('lHero'); h.classList.remove('kedip'); void h.offsetWidth; h.classList.add('kedip');
   }
-  return o;
-}
-
-String waktuSekarang() {
-  time_t now = time(nullptr);
-  if (now < 100000) return "-";
-  struct tm* t = localtime(&now);
-  char buf[24];
-  strftime(buf, sizeof(buf), "%d/%m/%Y %H:%M", t);
-  return String(buf);
-}
-
-// ---------- Sensor ----------
-float bacaADC() {
-  long s = 0;
-  for (int i = 0; i < 16; i++) { s += analogRead(PIN_SOIL); delay(2); }
-  return s / 16.0;
-}
-
-float adcKeKA(float adc) {
-  int n = sizeof(KAL) / sizeof(KAL[0]);
-  if (adc >= KAL[0].adc) return KAL[0].ka;
-  if (adc <= KAL[n - 1].adc) return KAL[n - 1].ka;
-  for (int i = 0; i < n - 1; i++) {
-    if (adc <= KAL[i].adc && adc >= KAL[i + 1].adc) {
-      float t = (KAL[i].adc - adc) / (KAL[i].adc - KAL[i + 1].adc);
-      return KAL[i].ka + t * (KAL[i + 1].ka - KAL[i].ka);
-    }
+  $('lAksi').textContent = (d.evt && d.evt.umur < 90000) ? '🔘 ' + ketEv + ' • ' + Math.round(d.evt.umur / 1000) + ' dtk lalu' : '';
+  // --- konfirmasi: alat sudah menerima perubahan dari web ---
+  if (hampaMenunggu !== null && Date.now() - hampaMenungguT < 120000 && d.ada && Number(d.hp) >= 0 && Math.abs(Number(d.hp) - hampaMenunggu) < 0.05) {
+    toast('📟 Alat menerima kadar hampa ' + hampaMenunggu + '%'); $('hMsg').textContent = '✓ Alat sudah menerima'; hampaMenunggu = null;
   }
-  return KAL[n - 1].ka;
-}
-
-float bacaBeratKg(int sampel) {
-  float kg = scale.get_units(sampel) / 1000.0;
-  if (kg < 0.001) kg = 0;                   // abaikan noise di bawah 1 gram
-  return kg;
-}
-
-float rafaksiAktif(float ka, float hampa) {
-  if (ka > KA_MAKS || hampa > HAMPA_MAKS) return 0;
-  bool air = ka > KA_STANDAR, hmp = hampa > HAMPA_STD;
-  return air ? (hmp ? RAF_BOTH : RAF_KA) : (hmp ? RAF_HAMPA : 0);
-}
-
-float hitungHargaPerKg(float ka, float hampa) {
-  if (ka > KA_MAKS || hampa > HAMPA_MAKS) return 0;   // di luar ketentuan harga
-  float h = HARGA_DASAR - rafaksiAktif(ka, hampa);
-  return (h < 0) ? 0 : h;
-}
-
-// ---------- WiFi & WhatsApp ----------
-bool pastikanWiFi() {
-  if (WiFi.status() == WL_CONNECTED) return true;
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  unsigned long t = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t < 12000) delay(250);
-  return WiFi.status() == WL_CONNECTED;
-}
-
-bool kirimWA(const String& pesan) {
-  if (!pastikanWiFi()) return false;
-  liveClient.stop();   // lepas memori TLS sebelum buka koneksi lain
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  if (!http.begin(client, "https://api.fonnte.com/send")) return false;
-  http.addHeader("Authorization", FONNTE_TOKEN);
-  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-  String body = "target=" + String(NOMOR_WA) + "&message=" + urlEncode(pesan);
-  int code = http.POST(body);
-  Serial.printf("Fonnte HTTP %d: %s\n", code, http.getString().c_str());
-  http.end();
-  return code == 200;
-}
-
-// Panggil web app (GET, ikuti redirect). Kembalikan isi respons.
-String panggilWeb(const String& query, int& code, int timeoutMs = 15000) {
-  code = -1;
-  if (!pastikanWiFi()) return "";
-  liveClient.stop();   // lepas memori TLS sebelum buka koneksi lain
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);   // butuh ESP8266 core 3.x
-  http.setTimeout(timeoutMs);
-  if (!http.begin(client, String(WEB_URL) + "?key=" + API_KEY + "&" + query)) return "";
-  code = http.GET();
-  String res = http.getString();
-  http.end();
-  res.trim();
-  Serial.printf("Web HTTP %d: %s\n", code, res.c_str());
-  return res;
-}
-
-bool kirimWeb() {
-  int code;
-  String q = "action=simpan&berat=" + String(hBerat, 3) + "&ka=" + String(hKA, 1) +
-             "&harga=" + String((long)hHargaKg) + "&total=" + String(hTotal) +
-             "&hampa=" + String(hHampa, 1) + "&mutu=" + urlEncode(labelMutu(hKA, hHampa));
-  String res = panggilWeb(q, code);
-  if (code == 200 && res.startsWith("OK|")) { idTrx = res.substring(3); return true; }
-  return false;
-}
-
-// ---------- Data realtime ke dashboard ----------
-// Dikirim hanya jika berat/KA berubah (min. jeda 2,5 dtk) dan sebagai detak tiap 8 dtk.
-// status: 0 = kosong, 1 = menimbang, 2 = hasil final
-unsigned long tLive = 0;
-int evKirim = 0;                 // jumlah tekan tombol yang belum dilaporkan ke dashboard
-float liveKg = -1, liveKa = -1;
-bool liveStabil = false;
-int liveStatus = -1;
-
-// Kirim cepat: tanpa mengikuti redirect (script sudah jalan di permintaan pertama) dan
-// koneksi dipakai ulang, jadi tidak ada handshake TLS berulang. Balasan 302 = sukses.
-HTTPClient liveHttp;
-bool liveInit = false;
-int liveGet(const String& query) {
-  if (!liveInit) { liveClient.setInsecure(); liveClient.setBufferSizes(1024, 512); liveInit = true; }
-  liveHttp.setReuse(true);
-  liveHttp.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-  liveHttp.setTimeout(3000);
-  if (!liveHttp.begin(liveClient, String(WEB_URL) + "?key=" + API_KEY + "&" + query)) return -1;
-  int code = liveHttp.GET();
-  liveHttp.end();
-  return code;
-}
-
-void kirimLive(float kg, float ka, float adc, float hKg, long total, bool stabil, int status, float hmp) {
-  if (WiFi.status() != WL_CONNECTED) return;
-  unsigned long dt = millis() - tLive;
-  bool berubah = fabs(kg - liveKg) >= 0.003 || fabs(ka - liveKa) >= 0.3 ||
-                 stabil != liveStabil || status != liveStatus;
-  if (!(evKirim > 0 || (berubah && dt >= 2500) || dt >= 8000)) return;
-  liveKg = kg; liveKa = ka; liveStabil = stabil; liveStatus = status;
-  int code;
-  String q = "action=live&b=" + String(kg, 3) + "&k=" + String(ka, 1) + "&a=" + String((int)adc) +
-             "&h=" + String((long)hKg) + "&t=" + String(total) + "&s=" + String(stabil ? 1 : 0) +
-             "&st=" + String(status) + "&r=" + String(WiFi.RSSI()) + "&hp=" + String(hmp, 1) + "&ev=" + String(evKirim) + "&lk=" + String(LOKASI) + "&id=" + urlEncode(idTrx);
-  code = liveGet(q);
-  if (code >= 0) evKirim = 0;
-  if (code < 0) liveClient.stop();   // koneksi putus: mulai ulang pada kiriman berikutnya
-  tLive = millis();
-}
-
-// Terapkan "harga|kaStandar|kaMaks|hampa|rafHampa|rafKA|rafBoth". true jika harga/aturan berubah
-bool terapkanSet(String v) {
-  float a[8];
-  int n = 0;
-  while (n < 8) {
-    int i = v.indexOf('|');
-    a[n++] = ((i < 0) ? v : v.substring(0, i)).toFloat();
-    if (i < 0) break;
-    v = v.substring(i + 1);
+  if (lokMenunggu && Date.now() - lokMenungguT < 120000 && d.ada && (d.lk ? 'penggilingan' : 'petani') === lokMenunggu) {
+    toast('📟 Alat menerima lokasi: ' + (lokMenunggu === 'petani' ? 'Di Petani' : 'Di Penggilingan')); lokMenunggu = '';
   }
-  if (n != 8 || a[0] <= 0) return false;
-  bool berubah = (HARGA_DASAR != a[0] || KA_STANDAR != a[1] || KA_MAKS != a[2] ||
-                  RAF_HAMPA != a[4] || RAF_KA != a[5] || RAF_BOTH != a[6]);
-  bool hb = (a[3] >= 0 && HAMPA != a[3]), lb = (LOKASI != (int)a[7]);
-  if (sudahSinkron && (hb || lb)) {          // petugas mengubah sesuatu di web
-    if (lb) pesanWeb = ((int)a[7]) ? "Lokasi: Giling" : "Lokasi: Petani";
-    else    pesanWeb = "Hampa: " + String(a[3], 1) + "%";
-    pesanWebAda = true;
+  if (d.lok && Date.now() - lokTs > 5000) pakaiLokasi(d.lok);
+  const online = d.ada && d.umur < 15000;
+  $('lDot').className = 'dot' + (online ? '' : ' off');
+  $('lHero').classList.toggle('off', !online);
+  if (!d.ada) { $('lOn').textContent = 'Alat belum pernah mengirim data'; $('lStatus').textContent = 'Menunggu alat...'; return; }
+  $('lOn').textContent = online ? 'Alat online' : 'Alat offline';
+  $('lInfo').textContent = 'Update ' + Math.round(d.umur / 1000) + ' dtk lalu • ADC ' + (d.a || '-') + ' • WiFi ' + d.r + ' dBm';
+  const P = DATA ? DATA.pengaturan : { kaStandar: 25, kaLembab: 30, rafHampa: 300, rafKA: 425, rafBoth: 750 };
+  const std = Number(P.kaStandar), mks = Number(P.kaLembab);
+  zona(std, mks);
+
+  if (d.ts !== lastTs) {
+    lastTs = d.ts;
+    const dif = HIST.length ? d.b - HIST[HIST.length - 1].b : 0;
+    HIST.push({ b: d.b, k: d.k }); if (HIST.length > 60) HIST.shift();
+    $('lTren').textContent = dif > 0.003 ? '▲' : dif < -0.003 ? '▼' : '';
+    $('lTren').style.color = dif > 0 ? '#86efac' : '#fca5a5';
+    tween(d.b);
+    spark('sB', HIST.map(x => x.b), '#16a34a'); spark('sK', HIST.map(x => x.k), '#ca8a04');
   }
-  sudahSinkron = true;
-  HARGA_DASAR = a[0]; KA_STANDAR = a[1]; KA_MAKS = a[2]; HAMPA = a[3];
-  RAF_HAMPA = a[4]; RAF_KA = a[5]; RAF_BOTH = a[6]; LOKASI = (int)a[7];
-  return berubah;
+  $('gJarum').style.transform = 'rotate(' + (-90 + fKA(d.k) * 180) + 'deg)';
+  $('lKa').textContent = d.k.toFixed(1) + '%';
+  const hpRaw = Number(d.hp), kosongHp = hpRaw < 0, hp = kosongHp ? 0 : (hpRaw || 0), luar = d.k > mks || hp > 15, air = d.k > std, hm = hp > 10;
+  const raf = luar ? 0 : air ? (hm ? Number(P.rafBoth) : Number(P.rafKA)) : (hm ? Number(P.rafHampa) : 0);
+  const mutu = luar ? ['DI LUAR KETENTUAN', '#fecaca', '#7f1d1d'] : air && hm ? ['GLK-3', '#fed7aa', '#7c2d12']
+    : air ? ['GLK-2', '#fef08a', '#713f12'] : hm ? ['GLK-1', '#fef08a', '#713f12'] : ['GKP', '#bbf7d0', '#14532d'];
+  if (kosongHp) { mutu[0] = 'ISI HAMPA'; mutu[1] = '#fecaca'; mutu[2] = '#7f1d1d'; }
+  $('hCard').classList.toggle('ring-2', kosongHp); $('hCard').classList.toggle('ring-red-500', kosongHp);
+  $('lMutu').textContent = mutu[0]; $('lMutu').style.background = mutu[1]; $('lMutu').style.color = mutu[2];
+  $('lHarga').textContent = rp(d.h); $('lTotal').textContent = rp(d.t);
+  $('lRaf').textContent = raf ? '-' + rp(raf) + '/kg' : 'Tidak ada'; $('lHamp').textContent = kosongHp ? 'Belum diisi' : hp.toFixed(1) + '%';
+  if (Date.now() - hampaTs > 20000 && document.activeElement !== $('hIn')) $('hIn').value = kosongHp ? '' : hp;
+  $('lStatus').textContent = !online ? 'Alat offline' : d.st === 2 ? '✅ Hasil terkirim ' + d.id
+    : d.st === 0 ? 'Timbangan kosong' : kosongHp ? '⚠ Isi kadar hampa dulu' : d.s ? '✔ Stabil - tekan tombol 1x' : '⏳ Menimbang...';
 }
-
-bool ambilPengaturan() {
-  tSetting = millis();
-  int code;
-  String res = panggilWeb("action=pengaturan", code);
-  if (code != 200 || !res.startsWith("SET|")) return false;
-  return terapkanSet(res.substring(4));
-}
-
-bool kirimHasil() {
-  String pesan = "*HASIL PENIMBANGAN GABAH*\n";
-  pesan += "Waktu     : " + waktuSekarang() + "\n";
-  pesan += "No. Trx   : " + idTrx + "\n";
-  pesan += "Berat     : " + fmtBerat(hBerat) + "\n";
-  pesan += "Lokasi    : " + String(hLokasi ? "Di penggilingan" : "Di petani") + "\n";
-  pesan += "Kadar air : " + String(hKA, 1) + " %\n";
-  pesan += "Kadar hampa: " + String(hHampa, 1) + " %\n";
-  pesan += "Kualitas  : " + labelMutu(hKA, hHampa) + "\n";
-  pesan += "Harga/kg  : " + rupiah((long)hHargaKg) + "\n";
-  if (hRaf > 0) pesan += "Rafaksi   : -" + rupiah((long)hRaf) + "/kg\n";
-  if (hKA > KA_MAKS || hHampa > HAMPA_MAKS) pesan += "Catatan   : di luar ketentuan harga (KA>" + String(KA_MAKS, 0) + "% / hampa>" + String(HAMPA_MAKS, 0) + "%)\n";
-  pesan += "*TOTAL    : " + rupiah(hTotal) + "*";
-  return kirimWA(pesan);
-}
-
-// ---------- Tampilan ----------
-void splash(String a, String b) {
-  lcd.clear();
-  tampil(0, a);
-  if (LCD_ROWS > 1) tampil(1, b);
-}
-
-#if LCD_20X4
-// ======================= LAYOUT 20x4 =======================
-void renderLive(float kg, float ka, float hKg, long total, bool stabil) {
-  bool wifiOk = (WiFi.status() == WL_CONNECTED);
-  tampil(0, "TIMBANGAN GABAH");
-  ikon(19, 0, wifiOk ? 0 : 1);
-
-  if (kg < BERAT_MIN) {
-    tampil(1, "Taruh gabah di atas");
-    tampil(2, "timbangan, tunggu");
-    tampil(3, "sampai ada centang");
-    return;
-  }
-  tampil(1, "Berat: " + fmtBerat(kg));
-  if (stabil) ikon(19, 1, 2); else kosongkan(19, 1);
-  tampil(2, "KA   : " + String(ka, 1) + "% " + labelMutu(ka, HAMPA));
-  tampil(3, rupiah((long)hKg) + "/kg=" + rupiah(total));
-}
-
-void renderHasil() {
-  bool wifiOk = (WiFi.status() == WL_CONNECTED);
-  tampil(0, String("WA:") + (waOK ? "OK" : "X") + " WEB:" + (webOK ? "OK" : "X"));
-  ikon(19, 0, wifiOk ? 0 : 1);
-  tampil(1, "Berat: " + fmtBerat(hBerat));
-  tampil(2, "KA   : " + String(hKA, 1) + "% " + labelMutu(hKA, hHampa));
-  tampil(3, rupiah((long)hHargaKg) + "/kg=" + rupiah(hTotal));
-  // petunjuk bergantian di baris 0 setiap halaman genap
-  if (halaman % 2 == 1) tampil(0, (waOK && webOK) ? "2x=baru 3x=kirim" : "1x=kirim 2x=baru");
-  ikon(19, 0, wifiOk ? 0 : 1);
-}
-
-#else
-// ======================= LAYOUT 16x2 =======================
-String barisBerat16(String l, float ka) {
-  String r = "KA" + String(ka, 1) + "%";
-  int sp = 15 - (int)l.length() - (int)r.length();
-  if (sp < 1) {                              // tidak muat: buang tulisan "KA"
-    r = String(ka, 1) + "%";
-    sp = 15 - (int)l.length() - (int)r.length();
-    if (sp < 1) sp = 1;
-  }
-  String s = l;
-  for (int i = 0; i < sp; i++) s += ' ';
-  s += r;
-  return s.substring(0, 15);
-}
-
-void barKA(int baris, float ka) {           // [#####   ] 18.5%
-  const int SEL = 8;
-  float f = (ka - KA_BAR_MIN) / (KA_BAR_MAX - KA_BAR_MIN);
-  if (f < 0) f = 0;
-  if (f > 1) f = 1;
-  int isi = (int)(f * SEL * 5 + 0.5);
-  lcd.setCursor(0, baris);
-  lcd.print('[');
-  for (int i = 0; i < SEL; i++) {
-    int c = isi - i * 5;
-    if (c <= 0) lcd.print(' ');
-    else if (c >= 5) lcd.write((uint8_t)255);
-    else lcd.write((uint8_t)(2 + c));        // 1..4 kolom -> karakter 3..6
-  }
-  lcd.print(']');
-  lcd.print(' ');
-  String p = String(ka, 1) + "%";
-  while (p.length() < 5) p = " " + p;
-  lcd.print(p);
-}
-
-void judul16(String t, int n) {             // "BERAT          1/5"
-  String r = String(n) + "/" + String(JUMLAH_HALAMAN);
-  String s = t;
-  while ((int)s.length() < 16 - (int)r.length()) s += ' ';
-  s += r;
-  lcd.setCursor(0, 0);
-  lcd.print(s.substring(0, 16));
-}
-
-void renderLive(float kg, float ka, float hKg, long total, bool stabil) {
-  bool wifiOk = (WiFi.status() == WL_CONNECTED);
-
-  if (kg < BERAT_MIN) {                      // timbangan kosong
-    tampil(0, "Siap menimbang");
-    tampil(1, "Taruh gabah...");
-    ikon(15, 0, wifiOk ? 0 : 1);
-    return;
-  }
-
-  String b = fmtBerat(kg);
-  b.replace(" ", "");
-  tampil(0, barisBerat16(b, ka));
-  ikon(15, 0, wifiOk ? 0 : 1);
-
-  String r1 = rupiah(total);
-  String lb = labelMutu(ka, HAMPA);
-  int sp = 15 - (int)r1.length() - (int)lb.length();
-  if (sp < 1) { lb = ""; sp = 15 - (int)r1.length(); }
-  if (sp < 0) sp = 0;
-  for (int i = 0; i < sp; i++) r1 += ' ';
-  r1 += lb;
-  tampil(1, r1);
-  if (stabil) ikon(15, 1, 2); else kosongkan(15, 1);
-}
-
-void renderHasil() {
-  switch (halaman) {
-    case 0:
-      judul16("BERAT", 1);
-      tampil(1, fmtBerat(hBerat));
-      break;
-    case 1:
-      judul16("KADAR AIR", 2);
-      barKA(1, hKA);
-      break;
-    case 2:
-      judul16("HARGA PER KG", 3);
-      tampil(1, rupiah((long)hHargaKg) + " " + labelMutu(hKA, hHampa));
-      break;
-    case 3:
-      judul16("TOTAL BAYAR", 4);
-      tampil(1, rupiah(hTotal));
-      break;
-    case 4:
-      judul16("STATUS KIRIM", 5);
-      tampil(1, String("WA:") + (waOK ? "OK" : "X") + "  WEB:" + (webOK ? "OK" : "X"));
-      break;
-    default:
-      judul16("PETUNJUK", 6);
-      tampil(1, (waOK && webOK) ? "2x:baru 3x:kirim" : "1x:kirim 2x:baru");
-      break;
-  }
-}
-#endif
-
-// ---------- Animasi loading ----------
-// Baris 1: tulisan + persen di kanan, baris 2: bar  [#######       ]
-void barPersen(int baris, int persen) {
-  const int SEL = LCD_COLS - 2;
-  if (persen < 0) persen = 0;
-  if (persen > 100) persen = 100;
-  int isi = persen * SEL * 5 / 100;
-  lcd.setCursor(0, baris);
-  lcd.print('[');
-  for (int i = 0; i < SEL; i++) {
-    int c = isi - i * 5;
-    if (c <= 0) lcd.print(' ');
-    else if (c >= 5) lcd.write((uint8_t)255);
-    else lcd.write((uint8_t)(2 + c));          // 1..4 kolom -> karakter 3..6
-  }
-  lcd.print(']');
-}
-
-void loading(String teks, int persen) {
-  tampil(0, teks);
-  String pr = String(persen) + "%";
-  lcd.setCursor(LCD_COLS - pr.length(), 0);
-  lcd.print(pr);
-  barPersen(1, persen);
-}
-
-void animasiLoading(String teks, int dari, int ke) {
-  for (int p = dari; p <= ke; p += 5) {
-    loading(teks, p);
-    delay(35);
-  }
-}
-
-// Ambil harga terbaru dari web; jika berubah, tampilkan sebentar di LCD
-void segarkanHarga() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  if (ambilPengaturan()) {
-    splash("Harga diperbarui", rupiah((long)HARGA_DASAR) + "/kg");
-    bip(1, 60);
-    delay(1800);
-    lcd.clear();
-  }
-}
-
-// ---------- Aksi ----------
-void prosesSelesai() {
-  splash("Menimbang...", "Tunggu stabil");
-  delay(1500);
-  if (WiFi.status() == WL_CONNECTED) { ambilPengaturan(); pesanWebAda = false; }   // pastikan kadar hampa terbaru
-  if (HAMPA < 0) {   // kadar hampa belum diisi petugas -> jangan hitung harga
-    splash("Isi hampa di web", "Isi di tab Live");
-    bip(3, 150);
-    delay(2500);
-    lcd.clear();
-    return;
-  }
-  hBerat   = bacaBeratKg(15);
-  hKA      = adcKeKA(bacaADC());
-  hHampa   = HAMPA;
-  hLokasi  = LOKASI;
-  hHargaKg = hitungHargaPerKg(hKA, hHampa);
-  hRaf     = rafaksiAktif(hKA, hHampa);
-  hTotal   = (long)(hBerat * hHargaKg + 0.5);
-
-  splash("Mengirim data..", "Mohon tunggu");
-  webOK = kirimWeb();
-  waOK = kirimHasil();
-  terkunci = true;
-  bip((waOK && webOK) ? 1 : 3, 150);
-  lcd.clear();
-  halaman = 0;
-  tHalaman = millis();
-  renderHasil();
-}
-
-void kirimUlang(bool paksaWA = false) {
-  splash("Mengirim ulang..", "Mohon tunggu");
-  if (!webOK) webOK = kirimWeb();
-  if (!waOK || paksaWA) waOK = kirimHasil();
-  bip((waOK && webOK) ? 1 : 3, 150);
-  lcd.clear();
-  halaman = 3;
-  tHalaman = millis();
-  renderHasil();
-}
-
-// ---------- Nol timbangan (disimpan PERMANEN di EEPROM) ----------
-// Nol tidak lagi diambil ulang tiap tare/restart, jadi aman walau ada beban saat reset.
-#define EEPROM_MAGIC 0x47415A32UL
-struct DataNol { uint32_t magic; long offset; };
-
-bool muatNol() {
-  EEPROM.begin(32);
-  DataNol d;
-  EEPROM.get(0, d);
-  if (d.magic != EEPROM_MAGIC) return false;
-  scale.set_offset(d.offset);
-  return true;
-}
-
-void simpanNol(long o) {
-  EEPROM.begin(32);
-  DataNol d;
-  d.magic = EEPROM_MAGIC;
-  d.offset = o;
-  EEPROM.put(0, d);
-  EEPROM.commit();
-}
-
-// Nol-kan timbangan (kosong / hanya wadah kosong). Tekan tombol saat hitung mundur = batal.
-bool nolkanTimbangan(bool bolehBatal) {
-  lcd.clear();
-  noInterrupts(); isrTekan = 0; interrupts();
-  for (int i = 50; i > 0; i--) {
-    if (i % 10 == 0) {
-      tampil(0, "Kosongkan alat!");
-      tampil(1, "Nol dlm " + String(i / 10) + " dtk");
-      bip(1, 30);
-    }
-    delay(100);
-    if (bolehBatal && isrTekan > 0) {
-      noInterrupts(); isrTekan = 0; interrupts();
-      splash("Dibatalkan", "Nol tidak diubah");
-      delay(1500);
-      lcd.clear();
-      return false;
-    }
-  }
-  splash("Mengukur nol...", "Jangan disentuh");
-  long o = scale.read_average(25);
-  scale.set_offset(o);
-  simpanNol(o);
-  bip(2, 80);
-  splash("Nol tersimpan", "Siap menimbang");
-  delay(1500);
-  lcd.clear();
-  return true;
-}
-
-void perintahSerial() {
-  if (!Serial.available()) return;
-  String cmd = Serial.readStringUntil('\n');
-  cmd.trim();
-  if (cmd.startsWith("cal ")) {
-    float gram = cmd.substring(4).toFloat();
-    if (gram > 0) {
-      scale.set_scale(1);
-      float raw = scale.get_value(15);
-      CAL_FACTOR = raw / gram;
-      scale.set_scale(CAL_FACTOR);
-      Serial.printf("CAL_FACTOR = %.3f  -> isi ke kode agar permanen\n", CAL_FACTOR);
-    }
-  } else if (cmd == "zero") {
-    long o = scale.read_average(25);
-    scale.set_offset(o);
-    simpanNol(o);
-    Serial.printf("Nol tersimpan: %ld\n", o);
-  } else if (cmd == "adc") {
-    Serial.printf("ADC rata-rata: %.1f\n", bacaADC());
-  }
-}
-
-// ---------- Setup & Loop ----------
-void setup() {
-  Serial.begin(115200);
-  pinMode(PIN_TOMBOL, INPUT_PULLUP);
-  {                                           // tunggu tombol dilepas (maks 5 dtk)
-    unsigned long tw = millis();
-    while (digitalRead(PIN_TOMBOL) == LOW && millis() - tw < 5000) delay(10);
-  }
-  attachInterrupt(digitalPinToInterrupt(PIN_TOMBOL), isrTombol, CHANGE);
-#if PAKAI_BUZZER
-  pinMode(PIN_BUZZER, OUTPUT);
-  digitalWrite(PIN_BUZZER, LOW);
-#endif
-
-  Wire.begin(D2, D1);
-  lcd.init();
-  lcd.backlight();
-  lcd.createChar(0, ikonWifi);
-  lcd.createChar(1, ikonPutus);
-  lcd.createChar(2, ikonCek);
-  lcd.createChar(3, bar1);
-  lcd.createChar(4, bar2);
-  lcd.createChar(5, bar3);
-  lcd.createChar(6, bar4);
-
-  splash("TIMBANGAN GABAH", "KA+Harga+WA v3");
-  bip(1, 60);
-  delay(1500);
-
-  splash("Memuat nol...", "Timbangan");
-  scale.begin(PIN_HX_DT, PIN_HX_SCK);
-  scale.set_scale(CAL_FACTOR);
-  if (!muatNol()) nolkanTimbangan(false);     // pertama kali saja: nol-kan lalu tersimpan permanen
-
-  splash("Menghubungkan", "WiFi...");
-  WiFi.mode(WIFI_STA);
-  bool ok = pastikanWiFi();
-  if (ok) configTime(7 * 3600, 0, "pool.ntp.org");   // WIB
-  if (ok) { splash("Ambil pengaturan", "harga dari web..."); ambilPengaturan(); }
-  splash(ok ? "WiFi tersambung" : "WiFi GAGAL", "Siap digunakan");
-  bip(ok ? 2 : 3, 60);
-  delay(1500);
-  lcd.clear();
-}
-
-// Mulai penimbangan baru: tare + reset status
-void mulaiBaru() {
-  terkunci = false;
-  waOK = false;
-  webOK = false;
-  idTrx = "-";
-  stabilCount = 0;
-  stabilLama = false;
-  lcd.clear();
-  animasiLoading("Reset hasil", 0, 60);       // tanpa tare: beban di timbangan tidak masalah
-  bip(1, 40);
-  if (WiFi.status() == WL_CONNECTED) {
-    animasiLoading("Cek harga...", 60, 70);
-    segarkanHarga();                          // harga terbaru tiap timbang baru
-    animasiLoading("Cek harga...", 70, 90);
-  }
-  animasiLoading("Siap!", 90, 100);
-  delay(400);
-  lcd.clear();
-  tBaca = 0;                                  // langsung tampilkan layar timbang
-}
-
-// Aksi berdasarkan jumlah tekan
-//  1x : selesai & kirim WA (jika WA gagal: kirim ulang)
-//  2x : tare / timbang baru
-//  3x : kirim ulang WA hasil terakhir
-void aksiJumlahTekan(int n) {
-  evKirim = n;   // dilaporkan ke dashboard pada pengiriman live berikutnya
-  if (n == 1) {
-    if (!terkunci) {
-      if (kgTerakhir < BERAT_MIN) {
-        splash("Timbangan kosong", "Taruh gabah dulu");
-        bip(2, 100);
-        delay(1500);
-        lcd.clear();
-      } else {
-        prosesSelesai();
-      }
-    } else if (!waOK || !webOK) {
-      kirimUlang();
-    } else {
-      splash("Sudah terkirim", "Tekan 2x: baru");
-      bip(1, 60);
-      delay(1500);
-      lcd.clear();
-    }
-  } else if (n == 2) {
-    if (terkunci) {
-      mulaiBaru();                            // aktif setelah hasil timbang keluar (terkirim atau belum)
-    } else {
-      splash("Tare belum aktif", "Tekan 1x=selesai");
-      bip(2, 100);
-      delay(1500);
-      lcd.clear();
-    }
-  } else if (n == 3) {
-    if (terkunci) {
-      kirimUlang(true);
-    } else {
-      splash("Belum ada hasil", "Tekan 1x=selesai");
-      bip(2, 100);
-      delay(1500);
-      lcd.clear();
-    }
-  } else if (n == 4) {
-    nolkanTimbangan(true);                    // taruh wadah KOSONG (atau kosongkan) dulu
-  } else {
-    splash("Maksimal 4x tekan", "1x 2x 3x 4x");
-    bip(2, 100);
-    delay(1500);
-    lcd.clear();
-  }
-}
-
-// Cek tombol:
-//  - ditahan >= TAHAN_RESET_MS      -> restart alat
-//  - ditahan > TAHAN_BATAL_MS       -> dibatalkan (bukan hitungan tekan)
-//  - tekan singkat berurutan        -> jumlah tekan dieksekusi setelah jeda TAP_JEDA_MS
-void cekTombol() {
-  unsigned long now = millis();
-
-  if (digitalRead(PIN_TOMBOL) == LOW) {       // sedang ditekan
-    if (tahanMulai == 0) tahanMulai = now;
-    unsigned long lama = now - tahanMulai;
-
-    if (lama >= TAHAN_RESET_MS) {
-      splash("Restart alat...", "Lepas tombol");
-      bip(2, 80);
-      delay(500);
-      ESP.restart();
-    } else if (lama >= TAHAN_PERINGATAN_MS && !peringatanTahan) {
-      peringatanTahan = true;
-      splash("Tahan terus...", "untuk restart");
-    }
-    return;                                   // jangan jalankan aksi saat masih ditekan
-  }
-
-  // tombol sudah dilepas
-  if (tahanMulai != 0) {
-    unsigned long lama = now - tahanMulai;
-    tahanMulai = 0;
-    if (peringatanTahan) { peringatanTahan = false; lcd.clear(); }
-    if (lama >= TAHAN_BATAL_MS) {             // tahan lama tapi belum cukup untuk restart
-      noInterrupts();
-      isrTekan = 0;
-      interrupts();
-      return;
-    }
-  }
-
-  uint8_t n = 0;
-  noInterrupts();
-  unsigned long t = millis();
-  if (isrTekan > 0 && (t - isrTerakhir) > TAP_JEDA_MS) {
-    n = isrTekan;
-    isrTekan = 0;
-  }
-  interrupts();
-  if (n > 0) aksiJumlahTekan(n);
-}
-
-void loop() {
-  perintahSerial();
-  unsigned long now = millis();
-
-  cekTombol();
-  if (pesanWebAda && !terkunci) {            // ada perubahan dari web -> beri tanda di LCD
-    pesanWebAda = false;
-    splash("Dari web:", pesanWeb);
-    bip(1, 80);
-    delay(1200);
-    lcd.clear();
-  }
-  if (!terkunci && millis() - tSetting > 45000UL && WiFi.status() == WL_CONNECTED) segarkanHarga();
-
-  if (now - tBaca > 400) {
-    tBaca = now;
-
-    if (terkunci) {
-      if (now - tHalaman > 3000) {
-        tHalaman = now;
-        halaman = (halaman + 1) % JUMLAH_HALAMAN;
-      }
-      renderHasil();
-      kirimLive(hBerat, hKA, 0, hHargaKg, hTotal, true, 2, hHampa);
-    } else {
-      float kg = bacaBeratKg(3);
-      float adc = bacaADC();
-      float ka = adcKeKA(adc);
-      float hKg = hitungHargaPerKg(ka, HAMPA);
-      long total = (long)(kg * hKg + 0.5);
-
-      // deteksi berat stabil (selisih <= 3 gram selama ~1,2 detik)
-      if (fabs(kg - kgSebelum) <= 0.003) stabilCount++; else stabilCount = 0;
-      kgSebelum = kg;
-      kgTerakhir = kg;
-      bool stabil = (stabilCount >= 3) && (kg >= BERAT_MIN);
-      if (stabil && !stabilLama) bip(1, 40);
-      stabilLama = stabil;
-
-      renderLive(kg, ka, hKg, total, stabil);
-      kirimLive(kg, ka, adc, hKg, total, stabil, kg < BERAT_MIN ? 0 : 1, HAMPA);
-    }
-  }
-}
+</script>
+</body>
+</html>
