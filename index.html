@@ -2,13 +2,31 @@
 <html lang="id">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#166534">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23166534'/><text x='50' y='72' font-size='64' text-anchor='middle'>🌾</text></svg>">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   body { background: #f0fdf4; }
   .card { background: #fff; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   .tab-on { background: #166534; color: #fff; }
+  html { -webkit-tap-highlight-color: transparent; }
+  button { touch-action: manipulation; }
+  input, select, textarea { font-size: 16px; }              /* cegah zoom otomatis di HP */
+  main { padding-bottom: 6.5rem; }
+  /* menu bawah ala aplikasi di HP */
+  #menu { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; display: grid; grid-template-columns: repeat(5, 1fr);
+    background: #fff; border-top: 1px solid #bbf7d0; padding: .35rem .3rem calc(.35rem + env(safe-area-inset-bottom)); box-shadow: 0 -4px 16px rgba(0,0,0,.07); }
+  #menu button { display: flex; flex-direction: column; align-items: center; gap: .1rem; font-size: .68rem; font-weight: 600; color: #64748b; padding: .35rem 0; border-radius: .8rem; }
+  #menu button .ic { font-size: 1.3rem; line-height: 1; }
+  #menu button.on { color: #166534; background: #dcfce7; }
+  @media (min-width: 768px) {
+    main { padding-bottom: 1rem; }
+    #menu { position: static; display: flex; gap: .5rem; background: none; border: 0; box-shadow: none; padding: 0; }
+    #menu button { flex-direction: row; gap: .4rem; font-size: .875rem; padding: .5rem 1rem; border-radius: 9999px; background: #fff; }
+    #menu button.on { background: #166534; color: #fff; }
+  }
   .live-hero{background:radial-gradient(circle at 15% 0%,#16a34a 0,#14532d 55%,#052e16 100%);transition:filter .5s}
   .live-hero.off{filter:grayscale(.85) brightness(.8)}
   .big{font-size:clamp(3.5rem,15vw,6.5rem);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.03em}
@@ -47,12 +65,12 @@
   </header>
 
   <main class="max-w-5xl mx-auto p-4 space-y-4">
-    <nav class="flex gap-2 text-sm font-semibold overflow-x-auto whitespace-nowrap">
-      <button id="t-live" onclick="tab('live')" class="px-4 py-2 rounded-full">🔴 Live</button>
-      <button id="t-dash" onclick="tab('dash')" class="px-4 py-2 rounded-full">Ringkasan</button>
-      <button id="t-riwayat" onclick="tab('riwayat')" class="px-4 py-2 rounded-full">Riwayat</button>
-      <button id="t-ket" onclick="tab('ket')" class="px-4 py-2 rounded-full">📋 Ketentuan</button>
-      <button id="t-atur" onclick="tab('atur')" class="px-4 py-2 rounded-full">Pengaturan</button>
+    <nav id="menu">
+      <button id="t-live" onclick="tab('live')"><span class="ic">🔴</span><span>Live</span></button>
+      <button id="t-dash" onclick="tab('dash')"><span class="ic">📊</span><span>Ringkasan</span></button>
+      <button id="t-riwayat" onclick="tab('riwayat')"><span class="ic">🧾</span><span>Riwayat</span></button>
+      <button id="t-ket" onclick="tab('ket')"><span class="ic">📋</span><span>Ketentuan</span></button>
+      <button id="t-atur" onclick="tab('atur')"><span class="ic">⚙️</span><span>Atur</span></button>
     </nav>
 
     <!-- LIVE -->
@@ -137,7 +155,8 @@
         <input id="cari" oninput="tabel()" placeholder="Cari ID / petani / tanggal..." class="flex-1 border rounded-xl p-3 bg-white">
         <button onclick="unduh()" class="bg-green-700 text-white rounded-xl px-4 font-semibold">CSV</button>
       </div>
-      <div class="card overflow-x-auto">
+      <div id="isiKartu" class="md:hidden space-y-2"></div>
+      <div class="card overflow-x-auto hidden md:block">
         <table class="w-full text-sm">
           <thead class="bg-green-50 text-green-900 text-left">
             <tr><th class="p-3">ID</th><th>Waktu</th><th>Berat</th><th>KA</th><th>Harga/kg</th><th>Total</th><th>Petani</th><th></th></tr>
@@ -272,14 +291,14 @@ async function muat(diam) {
   ringkas(); tabel();
   if (!diam) { $('aNama').value = p.namaUsaha; $('aLokasi').value = p.lokasi; $('aHP').value = p.hargaPetani; $('aHG').value = p.hargaPenggiling;
   $('aKA').value = p.kaStandar; $('aLembab').value = p.kaLembab; $('aRH').value = p.rafHampa; $('aRK').value = p.rafKA; $('aRB').value = p.rafBoth; }
-  $('kKey').textContent = p.apiKey; $('kUrl').textContent = API_URL; ketRender(); pakaiLokasi(p.lokasi);
+  $('kKey').textContent = p.apiKey; $('kUrl').textContent = API_URL; ketRender(); pakaiLokasi(p.lokasi); zona(Number(p.kaStandar), Number(p.kaLembab));
 }
 
 function tab(n) {
-  tabAktif = n; mulaiLive();   // pemantauan berjalan di semua tab
+  tabAktif = n; mulaiLive(); window.scrollTo({ top: 0 });   // pemantauan berjalan di semua tab
   ['live', 'dash', 'riwayat', 'ket', 'atur'].forEach(t => {
     $('p-' + t).classList.toggle('hidden', t !== n);
-    $('t-' + t).className = 'px-4 py-2 rounded-full ' + (t === n ? 'tab-on' : 'bg-white');
+    $('t-' + t).className = (t === n ? 'on' : '');
   });
 }
 
@@ -317,6 +336,18 @@ function tabel() {
     '<td class="whitespace-nowrap pr-3"><button onclick="ubah(\'' + esc(x.id) + '\')" class="px-2">✏️</button>' +
     '<button onclick="hapus(\'' + esc(x.id) + '\')" class="px-2">🗑️</button></td></tr>').join('')
     : '<tr><td colspan="8" class="p-6 text-center text-slate-400">Belum ada data</td></tr>';
+  $('isiKartu').innerHTML = r.length ? r.map(x => {
+    const hm = (x.hampa === '' || x.hampa == null || Number(x.hampa) < 0) ? '' : '<span class="text-xs text-slate-500">hampa ' + Number(x.hampa).toFixed(1) + '%</span>';
+    return '<div class="card p-3">' +
+      '<div class="flex justify-between items-start gap-2"><div><div class="font-bold">' + esc(x.id) + '</div><div class="text-xs text-slate-500">' + esc(x.waktu) + '</div></div>' +
+      '<div class="text-right"><div class="text-lg font-extrabold text-green-700">' + rp(x.total) + '</div><div class="text-xs text-slate-500">' + rp(x.harga) + '/kg</div></div></div>' +
+      '<div class="flex flex-wrap items-center gap-2 mt-2"><span class="font-semibold">' + brt(x.berat) + '</span>' +
+      '<span class="px-2 py-1 rounded-full text-xs ' + mutuWarna(x.ka) + '">KA ' + Number(x.ka).toFixed(1) + '%</span>' + hm +
+      (x.mutu ? '<span class="px-2 py-1 rounded-full text-xs bg-slate-100">' + esc(x.mutu) + '</span>' : '') + '</div>' +
+      '<div class="flex items-center justify-between gap-2 mt-2"><div class="text-xs text-slate-500 truncate">' + esc(x.petani || '-') + (x.catatan ? ' • ' + esc(x.catatan) : '') + '</div>' +
+      '<div class="flex gap-2 shrink-0"><button onclick="ubah(\'' + esc(x.id) + '\')" class="w-10 h-10 rounded-lg bg-slate-100">✏️</button>' +
+      '<button onclick="hapus(\'' + esc(x.id) + '\')" class="w-10 h-10 rounded-lg bg-slate-100">🗑️</button></div></div></div>';
+  }).join('') : '<div class="card p-6 text-center text-slate-400">Belum ada data</div>';
 }
 
 async function ubah(id) {
@@ -363,14 +394,16 @@ function ketRender() {
     const dasar = dasarLok(p, lok);
     const baris = KEL.map((k, i) => {
       const raf = k[2] ? Number(p[k[2]]) : 0;
-      return '<tr class="border-t ' + KWARNA[i] + '"><td class="p-3"><div class="font-bold">' + k[0] + '</div><div class="text-xs text-slate-500">' + k[1] + '</div></td>' +
-        '<td>' + (i < 2 ? 'Maks ' + std : (std + 1) + ' - ' + mks) + '%</td>' +
-        '<td>' + (i % 2 === 0 ? 'Maks 10' : '11 - 15') + '%</td>' +
-        '<td>' + (raf ? rp(raf) : '-') + '</td><td class="font-bold text-green-800 pr-3">' + rp(dasar - raf) + '</td></tr>';
+      const ka = i < 2 ? '≤ ' + std + '%' : (std + 1) + ' - ' + mks + '%', hm = i % 2 === 0 ? '≤ 10%' : '11 - 15%';
+      return '<div class="' + KWARNA[i] + ' rounded-xl p-3 flex items-center justify-between gap-3">' +
+        '<div class="min-w-0"><div class="font-bold">' + k[0] + ' <span class="text-xs font-normal text-slate-500">' + k[1] + '</span></div>' +
+        '<div class="text-xs text-slate-600 mt-1">Air ' + ka + ' • Hampa ' + hm + '</div>' +
+        '<div class="text-xs text-slate-500">' + (raf ? 'Rafaksi ' + rp(raf) + '/kg' : 'Tanpa rafaksi') + '</div></div>' +
+        '<div class="text-right shrink-0"><div class="text-xl font-extrabold text-green-800">' + rp(dasar - raf) + '</div><div class="text-xs text-slate-500">per kg</div></div></div>';
     }).join('');
-    return '<div class="card overflow-x-auto"><div class="p-3 font-semibold bg-green-700 text-white flex justify-between"><span>GKP ' +
-      (lok === 'petani' ? 'di Petani' : 'di Penggilingan') + '</span>' + (p.lokasi === lok ? '<span class="text-xs bg-white/20 rounded-full px-2 py-1">lokasi aktif</span>' : '') + '</div>' +
-      '<table class="w-full text-sm"><thead class="bg-green-50 text-green-900 text-left"><tr><th class="p-3">Kualitas</th><th>Kadar air</th><th>Kadar hampa</th><th>Rafaksi/kg</th><th>Harga/kg</th></tr></thead><tbody>' + baris + '</tbody></table></div>';
+    return '<div class="card overflow-hidden"><div class="p-3 font-semibold bg-green-700 text-white flex justify-between items-center"><span>GKP ' +
+      (lok === 'petani' ? 'di Petani' : 'di Penggilingan') + '</span>' + (p.lokasi === lok ? '<span class="text-xs bg-white/20 rounded-full px-2 py-1">lokasi aktif</span>' : '') +
+      '</div><div class="p-3 space-y-2">' + baris + '</div></div>';
   };
   $('ketTabel').innerHTML = kartu('petani') + kartu('penggilingan');
   $('ketSelisih').textContent = rp(Number(p.hargaPenggiling) - Number(p.hargaPetani));
