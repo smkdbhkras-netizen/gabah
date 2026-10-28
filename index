@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background: #f0fdf4; }
+  .card { background: #fff; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .tab-on { background: #166534; color: #fff; }
+  .live-hero{background:radial-gradient(circle at 15% 0%,#16a34a 0,#14532d 55%,#052e16 100%);transition:filter .5s}
+  .live-hero.off{filter:grayscale(.85) brightness(.8)}
+  .big{font-size:clamp(3.5rem,15vw,6.5rem);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+  .dot{width:.65rem;height:.65rem;border-radius:9999px;background:#4ade80;animation:pls 1.6s infinite}
+  .dot.off{background:#f87171;animation:none}
+  @keyframes pls{0%{box-shadow:0 0 0 0 rgba(74,222,128,.7)}70%{box-shadow:0 0 0 10px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+  .chip{display:inline-block;padding:.3rem .9rem;border-radius:9999px;background:rgba(255,255,255,.16);font-size:.85rem;font-weight:600}
+</style>
+</head>
+<body class="text-slate-800">
+
+<!-- LOGIN -->
+<div id="login" class="min-h-screen flex items-center justify-center p-4">
+  <div class="card p-8 w-full max-w-sm text-center">
+    <div class="text-5xl mb-2">🌾</div>
+    <h1 class="text-xl font-bold text-green-800">Timbangan Gabah</h1>
+    <p class="text-sm text-slate-500 mb-5">Masukkan PIN untuk melihat data</p>
+    <input id="pin" type="password" inputmode="numeric" placeholder="PIN"
+      class="w-full text-center text-2xl tracking-widest border rounded-xl p-3 mb-3 focus:outline-green-600"
+      onkeydown="if(event.key==='Enter')masuk()">
+    <button onclick="masuk()" class="w-full bg-green-700 hover:bg-green-800 text-white font-semibold rounded-xl p-3">Masuk</button>
+    <p id="errLogin" class="text-red-600 text-sm mt-3 h-5"></p>
+  </div>
+</div>
+
+<!-- APLIKASI -->
+<div id="app" class="hidden">
+  <header class="bg-gradient-to-r from-green-800 to-green-600 text-white px-4 py-5">
+    <div class="max-w-5xl mx-auto flex items-center justify-between">
+      <div>
+        <div class="text-xs opacity-80">Dashboard</div>
+        <h1 id="judul" class="text-xl font-bold">🌾 Timbangan Gabah</h1>
+      </div>
+      <button onclick="muat()" class="bg-white/20 hover:bg-white/30 rounded-lg px-3 py-2 text-sm">⟳ Muat ulang</button>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto p-4 space-y-4">
+    <nav class="flex gap-2 text-sm font-semibold overflow-x-auto whitespace-nowrap">
+      <button id="t-live" onclick="tab('live')" class="px-4 py-2 rounded-full">🔴 Live</button>
+      <button id="t-dash" onclick="tab('dash')" class="px-4 py-2 rounded-full">Ringkasan</button>
+      <button id="t-riwayat" onclick="tab('riwayat')" class="px-4 py-2 rounded-full">Riwayat</button>
+      <button id="t-ket" onclick="tab('ket')" class="px-4 py-2 rounded-full">📋 Ketentuan</button>
+      <button id="t-atur" onclick="tab('atur')" class="px-4 py-2 rounded-full">Pengaturan</button>
+    </nav>
+
+    <!-- LIVE -->
+    <section id="p-live" class="space-y-4">
+      <div id="lHero" class="live-hero card p-5 md:p-7 text-white off">
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2"><span id="lDot" class="dot off"></span><span id="lOn">Menghubungkan...</span></div>
+          <div id="lInfo" class="opacity-70"></div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-6 items-center mt-4">
+          <div>
+            <div class="text-xs uppercase tracking-widest opacity-70">Berat</div>
+            <div class="flex items-end gap-2">
+              <span id="lBerat" class="big">0.000</span><span id="lSat" class="text-2xl mb-3 opacity-80">kg</span>
+              <span id="lTren" class="text-3xl mb-3"></span>
+            </div>
+            <span id="lStatus" class="chip">Menunggu alat...</span>
+          </div>
+          <div class="text-center">
+            <div class="text-xs uppercase tracking-widest opacity-70">Kadar air</div>
+            <svg viewBox="0 0 200 125" class="w-full max-w-xs mx-auto">
+              <path d="M 20 100 A 80 80 0 0 1 180 100" stroke="rgba(255,255,255,.12)" stroke-width="14" fill="none"/>
+              <g id="gZona"></g>
+              <g id="gJarum" style="transform-origin:100px 100px;transform:rotate(-90deg);transition:transform .8s cubic-bezier(.2,.9,.2,1)">
+                <line x1="100" y1="100" x2="100" y2="32" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+                <circle cx="100" cy="100" r="6" fill="#fff"/>
+              </g>
+              <text x="20" y="120" text-anchor="middle" font-size="9" fill="#fff" opacity=".6">10</text>
+              <text x="180" y="120" text-anchor="middle" font-size="9" fill="#fff" opacity=".6">35</text>
+            </svg>
+            <div class="flex items-center justify-center gap-3 -mt-2">
+              <span id="lKa" class="text-4xl font-extrabold">-</span><span id="lMutu" class="chip">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card p-4 flex flex-wrap items-center gap-3">
+        <div class="flex-1 min-w-[12rem]"><div class="font-semibold text-sm">Lokasi pembelian</div><div id="lokInfo" class="text-xs text-slate-500">-</div></div>
+        <div class="flex rounded-xl overflow-hidden border border-green-700 text-sm font-semibold">
+          <button id="bLokPetani" onclick="pilihLokasi('petani')" class="px-4 py-2">🌾 Di Petani</button>
+          <button id="bLokGiling" onclick="pilihLokasi('penggilingan')" class="px-4 py-2">🏭 Di Penggilingan</button>
+        </div>
+      </div>
+      <div id="hCard" class="card p-4 flex flex-wrap items-center gap-3">
+        <div class="flex-1 min-w-[12rem]"><div class="font-semibold text-sm">Kadar hampa (%) - isi manual</div>
+          <div class="text-xs text-slate-500">Tidak terukur sensor. Wajib diisi sebelum menekan tombol alat (isi 0 jika gabah bersih). Kembali ke "belum diisi" setelah transaksi tersimpan.</div></div>
+        <input id="hIn" type="number" step="0.1" min="0" placeholder="0" class="w-24 border rounded-xl p-2 text-center text-lg">
+        <button onclick="terapkanHampa()" class="bg-green-700 text-white rounded-xl px-4 py-2 font-semibold">Terapkan</button>
+        <button onclick="terapkanHampa(0)" class="bg-white border border-green-700 text-green-800 rounded-xl px-4 py-2 font-semibold">Bersih (0%)</button>
+        <span id="hMsg" class="text-xs text-slate-500"></span>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="card p-4"><div class="text-xs text-slate-500">Harga/kg</div><div id="lHarga" class="text-xl font-bold">-</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Estimasi total</div><div id="lTotal" class="text-xl font-bold text-green-700">-</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Rafaksi</div><div id="lRaf" class="text-xl font-bold">-</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Kadar hampa</div><div id="lHamp" class="text-xl font-bold">-</div></div>
+      </div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div class="card p-4"><div class="font-semibold text-sm mb-2">Grafik berat (60 data terakhir)</div><svg id="sB" viewBox="0 0 300 60" preserveAspectRatio="none" class="w-full h-24"></svg></div>
+        <div class="card p-4"><div class="font-semibold text-sm mb-2">Grafik kadar air (60 data terakhir)</div><svg id="sK" viewBox="0 0 300 60" preserveAspectRatio="none" class="w-full h-24"></svg></div>
+      </div>
+    </section>
+
+    <!-- RINGKASAN -->
+    <section id="p-dash" class="space-y-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="card p-4"><div class="text-xs text-slate-500">Transaksi hari ini</div><div id="sTrx" class="text-2xl font-bold">0</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Berat hari ini</div><div id="sBerat" class="text-2xl font-bold">0</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Total hari ini</div><div id="sTotal" class="text-2xl font-bold text-green-700">Rp0</div></div>
+        <div class="card p-4"><div class="text-xs text-slate-500">Rata-rata kadar air</div><div id="sKA" class="text-2xl font-bold">-</div></div>
+      </div>
+      <div class="card p-4">
+        <div class="font-semibold mb-3">Berat 7 hari terakhir (kg)</div>
+        <div id="grafik" class="flex items-end gap-2 h-40"></div>
+      </div>
+      <div class="card p-4 text-sm text-slate-600" id="sAll"></div>
+    </section>
+
+    <!-- RIWAYAT -->
+    <section id="p-riwayat" class="hidden space-y-3">
+      <div class="flex gap-2">
+        <input id="cari" oninput="tabel()" placeholder="Cari ID / petani / tanggal..." class="flex-1 border rounded-xl p-3 bg-white">
+        <button onclick="unduh()" class="bg-green-700 text-white rounded-xl px-4 font-semibold">CSV</button>
+      </div>
+      <div class="card overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-green-50 text-green-900 text-left">
+            <tr><th class="p-3">ID</th><th>Waktu</th><th>Berat</th><th>KA</th><th>Harga/kg</th><th>Total</th><th>Petani</th><th></th></tr>
+          </thead>
+          <tbody id="isi"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- KETENTUAN -->
+    <section id="p-ket" class="hidden space-y-4">
+      <div class="card p-5">
+        <h2 class="font-bold text-lg text-green-800">Ketentuan Harga Pembelian Pemerintah (HPP) - Gabah Kering Panen (GKP)</h2>
+        <p class="text-sm text-slate-600 mt-1">Harga beli gabah ditentukan oleh <b>dua pengukuran</b>. Semakin kering dan bersih gabah, semakin tinggi harganya.</p>
+        <div class="grid md:grid-cols-3 gap-3 mt-4 text-sm">
+          <div class="rounded-xl bg-green-50 p-4"><div class="font-bold">① Kadar air (KA)</div><div class="text-slate-600 mt-1">Persentase air dalam gabah. <b>Diukur otomatis</b> oleh sensor alat.</div></div>
+          <div class="rounded-xl bg-yellow-50 p-4"><div class="font-bold">② Kadar hampa</div><div class="text-slate-600 mt-1">Persentase butir hampa/kotoran dalam gabah. <b>Diisi petugas</b> di tab Live (tidak bisa diukur sensor).</div></div>
+          <div class="rounded-xl bg-slate-100 p-4"><div class="font-bold">③ Kualitas &amp; harga</div><div class="text-slate-600 mt-1">Dari kedua nilai itu ditentukan kualitas (GKP / GLK-1 / GLK-2 / GLK-3), lalu <b>harga = harga dasar - rafaksi</b>.</div></div>
+        </div>
+      </div>
+      <div class="card p-5 text-sm">
+        <div class="font-semibold text-base text-green-800">Apa beda "di Petani" dan "di Penggilingan"?</div>
+        <p class="text-slate-600 mt-1">Perbedaannya hanya pada <b>tempat gabah diserahkan</b>, yang menentukan siapa menanggung biaya angkut. Syarat kualitas (kadar air &amp; kadar hampa) dan rafaksinya <b>sama persis</b>; yang berbeda hanya harga dasarnya (selisih <b id="ketSelisih">-</b>/kg).</p>
+        <div class="grid md:grid-cols-2 gap-3 mt-3">
+          <div class="rounded-xl bg-green-50 p-4"><div class="font-bold">🌾 GKP di Petani</div>
+            <ul class="list-disc pl-5 text-slate-600 mt-1 space-y-1">
+              <li>Gabah diserahkan <b>di tempat petani</b> (sawah, rumah, atau gudang kelompok tani).</li>
+              <li>Pembeli yang <b>menjemput</b> dan menanggung biaya angkut ke penggilingan.</li>
+              <li>Harga dasar <b>lebih rendah</b>.</li>
+              <li>Pilih ini jika <b>Anda yang mengambil</b> gabah ke petani.</li>
+            </ul></div>
+          <div class="rounded-xl bg-yellow-50 p-4"><div class="font-bold">🏭 GKP di Penggilingan</div>
+            <ul class="list-disc pl-5 text-slate-600 mt-1 space-y-1">
+              <li>Gabah <b>diantar sampai ke penggilingan</b> (tempat timbangan ini berada).</li>
+              <li>Biaya angkut dari petani ke penggilingan <b>ditanggung pengantar</b>.</li>
+              <li>Harga dasar <b>lebih tinggi</b> sebagai pengganti biaya angkut tersebut.</li>
+              <li>Pilih ini jika <b>petani mengantar</b> gabah ke tempat Anda.</li>
+            </ul></div>
+        </div>
+        <p class="text-xs text-slate-500 mt-3">Lokasi dipilih di tab Pengaturan dan berlaku untuk semua timbangan sampai diganti. Ini penjelasan umum; untuk batasan resmi, rujuk teks peraturan HPP yang berlaku.</p>
+      </div>
+      <div id="ketTabel" class="grid md:grid-cols-2 gap-4"></div>
+      <div class="card p-5 text-sm space-y-2">
+        <div class="font-semibold">Catatan penting</div>
+        <ul class="list-disc pl-5 text-slate-600 space-y-1">
+          <li><b>Rafaksi</b> = potongan harga per kg karena gabah kurang kering dan/atau kurang bersih.</li>
+          <li>Kadar air <b>di atas batas diterima</b> atau kadar hampa <b>di atas 15%</b> = <b>di luar ketentuan harga</b> (alat memberi harga 0, negosiasikan terpisah).</li>
+          <li>Sistem menganggap kadar air <b>di atas batas penuh</b> (mis. 25,1%) sudah kena rafaksi. Batas dan nilai rafaksi bisa diubah di tab Pengaturan.</li>
+          <li>Alat <b>tidak menyimpan transaksi</b> sebelum kadar hampa diisi (isi 0 jika gabah bersih).</li>
+        </ul>
+        <div id="ketContoh" class="rounded-xl bg-green-50 p-3 text-slate-700"></div>
+      </div>
+      <div class="card p-5 space-y-3">
+        <div class="font-semibold">Cek cepat harga</div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <label>Kadar air (%)<input id="cKA" type="number" step="0.1" oninput="ketHitung()" class="w-full border rounded-lg p-2 mt-1"></label>
+          <label>Kadar hampa (%)<input id="cHP" type="number" step="0.1" oninput="ketHitung()" class="w-full border rounded-lg p-2 mt-1"></label>
+          <label>Berat (kg)<input id="cKg" type="number" step="0.1" oninput="ketHitung()" class="w-full border rounded-lg p-2 mt-1"></label>
+          <label>Lokasi<select id="cLok" onchange="ketHitung()" class="w-full border rounded-lg p-2 mt-1"><option value="petani">Di petani</option><option value="penggilingan">Di penggilingan</option></select></label>
+        </div>
+        <div id="cHasil" class="rounded-xl bg-slate-100 p-3 font-semibold">Isi kadar air dan kadar hampa.</div>
+      </div>
+    </section>
+
+    <!-- PENGATURAN -->
+    <section id="p-atur" class="hidden grid md:grid-cols-2 gap-4">
+      <div class="card p-5 space-y-3">
+        <div class="font-semibold">Harga Pembelian Pemerintah (GKP)</div>
+        <label class="block text-sm">Nama usaha<input id="aNama" type="text"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Lokasi pembelian<select id="aLokasi" class="w-full border rounded-lg p-2 mt-1"><option value="petani">Di petani</option><option value="penggilingan">Di penggilingan</option></select><span class="text-xs text-slate-500">Di petani: Anda yang menjemput gabah. Di penggilingan: petani mengantar ke tempat Anda. Bisa juga diganti cepat dari tab Live. Penjelasan lengkap di tab Ketentuan.</span></label>
+        <label class="block text-sm">Harga GKP di petani (Rp/kg)<input id="aHP" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Harga GKP di penggilingan (Rp/kg)<input id="aHG" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">KA maks harga penuh (%)<input id="aKA" type="number" step="0.1" class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">KA maks diterima (%)<input id="aLembab" type="number" step="0.1" class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Rafaksi hampa 11-15% (GLK-1, Rp/kg)<input id="aRH" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Rafaksi KA 26-30% (GLK-2, Rp/kg)<input id="aRK" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">Rafaksi KA 26-30% + hampa 11-15% (GLK-3, Rp/kg)<input id="aRB" type="number"  class="w-full border rounded-lg p-2 mt-1"></label>
+        <label class="block text-sm">PIN baru (kosongkan jika tidak diganti)<input id="aPin" type="password" inputmode="numeric" class="w-full border rounded-lg p-2 mt-1"></label>
+        <button onclick="simpanAtur()" class="w-full bg-green-700 text-white font-semibold rounded-xl p-3">Simpan pengaturan</button>
+        <p class="text-xs text-slate-500">Alat mengambil harga ini otomatis saat menyala, setiap mulai timbang baru, dan tiap 2 menit.</p>
+      </div>
+      <div class="card p-5 space-y-2">
+        <div class="font-semibold">Sambungan alat</div>
+        <p class="text-sm text-slate-600">Salin ke kode ESP8266:</p>
+        <div class="text-xs bg-slate-100 rounded-lg p-3 break-all">
+          <div class="font-semibold">API_KEY</div><div id="kKey" class="mb-2"></div>
+          <div class="font-semibold">WEB_URL</div><div id="kUrl"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+// GANTI dengan URL Web App Apps Script Anda (Deploy > Manage deployments, berakhiran /exec)
+const API_URL = 'https://script.google.com/macros/s/AKfycbyYMJN_7Tg9fGBiWSnJjSA3ITBinJ7o3nAWiIncbzYomSrYI3oX_sOWZEqR2lcmYw78HQ/exec';
+let TOKEN = '', DATA = null;
+const $ = id => document.getElementById(id);
+const run = async (fn, ...args) => {
+  let r;
+  try {
+    r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn, args }) });
+  } catch (e) { throw new Error('Tidak bisa terhubung ke server.'); }
+  let j;
+  try { j = JSON.parse(await r.text()); } catch (e) { throw new Error('Server sibuk, coba lagi sebentar.'); }
+  if (!j.ok) throw new Error(j.error || 'Terjadi kesalahan.');
+  return j.data;
+};
+const rp = n => 'Rp' + Math.round(n || 0).toLocaleString('id-ID');
+const brt = kg => kg >= 1 ? kg.toFixed(3) + ' kg' : (kg * 1000).toFixed(1) + ' g';
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const mutuWarna = k => k <= DATA.pengaturan.kaStandar ? 'bg-green-100 text-green-800'
+  : k <= DATA.pengaturan.kaLembab ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800';
+
+async function masuk() {
+  $('errLogin').textContent = '';
+  try { TOKEN = await run('login', $('pin').value); $('login').classList.add('hidden'); $('app').classList.remove('hidden'); tab('live'); muat(); }
+  catch (e) { $('errLogin').textContent = e.message || 'Gagal masuk.'; }
+}
+
+let sedangMuat = false;
+// diam = true: muat ulang di latar belakang (tanpa alert, tanpa menimpa isian form Pengaturan)
+async function muat(diam) {
+  if (sedangMuat) return;
+  sedangMuat = true;
+  try { DATA = await run('ambilData', TOKEN); }
+  catch (e) { sedangMuat = false; if (diam && !/Sesi/.test(e.message || '')) return; alert(e.message); location.reload(); return; }
+  sedangMuat = false;
+  const p = DATA.pengaturan;
+  $('judul').textContent = '🌾 ' + p.namaUsaha;
+  document.title = p.namaUsaha;
+  ringkas(); tabel();
+  if (!diam) { $('aNama').value = p.namaUsaha; $('aLokasi').value = p.lokasi; $('aHP').value = p.hargaPetani; $('aHG').value = p.hargaPenggiling;
+  $('aKA').value = p.kaStandar; $('aLembab').value = p.kaLembab; $('aRH').value = p.rafHampa; $('aRK').value = p.rafKA; $('aRB').value = p.rafBoth; }
+  $('kKey').textContent = p.apiKey; $('kUrl').textContent = API_URL; ketRender(); pakaiLokasi(p.lokasi);
+}
+
+function tab(n) {
+  tabAktif = n; mulaiLive();   // pemantauan berjalan di semua tab
+  ['live', 'dash', 'riwayat', 'ket', 'atur'].forEach(t => {
+    $('p-' + t).classList.toggle('hidden', t !== n);
+    $('t-' + t).className = 'px-4 py-2 rounded-full ' + (t === n ? 'tab-on' : 'bg-white');
+  });
+}
+
+function ringkas() {
+  const r = DATA.rows, h = DATA.hariIni;
+  const hi = r.filter(x => x.waktu.startsWith(h));
+  const sum = (a, k) => a.reduce((s, x) => s + Number(x[k] || 0), 0);
+  $('sTrx').textContent = hi.length;
+  $('sBerat').textContent = brt(sum(hi, 'berat'));
+  $('sTotal').textContent = rp(sum(hi, 'total'));
+  $('sKA').textContent = hi.length ? (sum(hi, 'ka') / hi.length).toFixed(1) + '%' : '-';
+  $('sAll').textContent = 'Seluruh data: ' + r.length + ' transaksi • ' + brt(sum(r, 'berat')) + ' • ' + rp(sum(r, 'total'));
+
+  const hari = [];
+  for (let i = 6; i >= 0; i--) { const d = new Date(h + 'T00:00:00'); d.setDate(d.getDate() - i); hari.push(d.toISOString().slice(0, 10)); }
+  const nilai = hari.map(t => sum(r.filter(x => x.waktu.startsWith(t)), 'berat'));
+  const mx = Math.max(...nilai, 1);
+  $('grafik').innerHTML = hari.map((t, i) =>
+    '<div class="flex-1 flex flex-col items-center justify-end h-full">' +
+    '<div class="text-xs mb-1">' + (nilai[i] ? nilai[i].toFixed(1) : '') + '</div>' +
+    '<div class="w-full bg-green-600 rounded-t-lg" style="height:' + Math.max(nilai[i] / mx * 100, nilai[i] ? 4 : 1) + '%"></div>' +
+    '<div class="text-xs text-slate-500 mt-1">' + t.slice(8) + '/' + t.slice(5, 7) + '</div></div>').join('');
+}
+
+function tabel() {
+  const q = $('cari').value.toLowerCase();
+  const r = DATA.rows.filter(x => !q || (x.id + x.waktu + x.petani + x.catatan).toLowerCase().includes(q));
+  $('isi').innerHTML = r.length ? r.map(x =>
+    '<tr class="border-t">' +
+    '<td class="p-3 font-semibold">' + esc(x.id) + '</td><td>' + esc(x.waktu) + '</td>' +
+    '<td>' + brt(x.berat) + '</td>' +
+    '<td><span class="px-2 py-1 rounded-full text-xs ' + mutuWarna(x.ka) + '">' + Number(x.ka).toFixed(1) + '%</span></td>' +
+    '<td>' + rp(x.harga) + '</td><td class="font-semibold">' + rp(x.total) + '</td>' +
+    '<td>' + esc(x.petani || '-') + '<div class="text-xs text-slate-400">' + esc(x.catatan) + '</div></td>' +
+    '<td class="whitespace-nowrap pr-3"><button onclick="ubah(\'' + esc(x.id) + '\')" class="px-2">✏️</button>' +
+    '<button onclick="hapus(\'' + esc(x.id) + '\')" class="px-2">🗑️</button></td></tr>').join('')
+    : '<tr><td colspan="8" class="p-6 text-center text-slate-400">Belum ada data</td></tr>';
+}
+
+async function ubah(id) {
+  const x = DATA.rows.find(r => r.id === id);
+  const petani = prompt('Nama petani / pemilik gabah:', x.petani || ''); if (petani === null) return;
+  const cat = prompt('Catatan:', x.catatan || ''); if (cat === null) return;
+  try { await run('ubahTransaksi', TOKEN, id, petani, cat); muat(); } catch (e) { alert(e.message); }
+}
+
+async function hapus(id) {
+  if (!confirm('Hapus transaksi ' + id + '?')) return;
+  try { await run('hapusTransaksi', TOKEN, id); muat(); } catch (e) { alert(e.message); }
+}
+
+async function simpanAtur() {
+  try {
+    await run('simpanPengaturan', TOKEN, {
+      namaUsaha: $('aNama').value, lokasi: $('aLokasi').value, hargaPetani: $('aHP').value, hargaPenggiling: $('aHG').value,
+      kaStandar: $('aKA').value, kaLembab: $('aLembab').value, rafHampa: $('aRH').value, rafKA: $('aRK').value, rafBoth: $('aRB').value, pinBaru: $('aPin').value
+    });
+    $('aPin').value = ''; alert('Tersimpan. Alat akan memakai harga baru otomatis.'); muat();
+  } catch (e) { alert(e.message); }
+}
+
+function unduh() {
+  const baris = [['ID', 'Waktu', 'Berat(kg)', 'KA(%)', 'Harga/kg', 'Total', 'Mutu', 'Petani', 'Catatan', 'Hampa(%)', 'Lokasi']]
+    .concat(DATA.rows.map(x => [x.id, x.waktu, x.berat, x.ka, x.harga, x.total, x.mutu, x.petani, x.catatan, x.hampa, x.lokasi]));
+  const csv = baris.map(b => b.map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' }));
+  a.download = 'timbangan-gabah.csv'; a.click();
+}
+
+// ---------- KETENTUAN ----------
+const KEL = [['GKP', 'Gabah Kering Panen', ''], ['GLK-1', 'GKP di luar kualitas 1', 'rafHampa'],
+             ['GLK-2', 'GKP di luar kualitas 2', 'rafKA'], ['GLK-3', 'GKP di luar kualitas 3', 'rafBoth']];
+const KWARNA = ['bg-green-50', 'bg-yellow-50', 'bg-orange-50', 'bg-red-50'];
+const dasarLok = (p, lok) => Number(lok === 'petani' ? p.hargaPetani : p.hargaPenggiling);
+
+function ketRender() {
+  if (!DATA) return;
+  const p = DATA.pengaturan, std = Number(p.kaStandar), mks = Number(p.kaLembab);
+  const kartu = lok => {
+    const dasar = dasarLok(p, lok);
+    const baris = KEL.map((k, i) => {
+      const raf = k[2] ? Number(p[k[2]]) : 0;
+      return '<tr class="border-t ' + KWARNA[i] + '"><td class="p-3"><div class="font-bold">' + k[0] + '</div><div class="text-xs text-slate-500">' + k[1] + '</div></td>' +
+        '<td>' + (i < 2 ? 'Maks ' + std : (std + 1) + ' - ' + mks) + '%</td>' +
+        '<td>' + (i % 2 === 0 ? 'Maks 10' : '11 - 15') + '%</td>' +
+        '<td>' + (raf ? rp(raf) : '-') + '</td><td class="font-bold text-green-800 pr-3">' + rp(dasar - raf) + '</td></tr>';
+    }).join('');
+    return '<div class="card overflow-x-auto"><div class="p-3 font-semibold bg-green-700 text-white flex justify-between"><span>GKP ' +
+      (lok === 'petani' ? 'di Petani' : 'di Penggilingan') + '</span>' + (p.lokasi === lok ? '<span class="text-xs bg-white/20 rounded-full px-2 py-1">lokasi aktif</span>' : '') + '</div>' +
+      '<table class="w-full text-sm"><thead class="bg-green-50 text-green-900 text-left"><tr><th class="p-3">Kualitas</th><th>Kadar air</th><th>Kadar hampa</th><th>Rafaksi/kg</th><th>Harga/kg</th></tr></thead><tbody>' + baris + '</tbody></table></div>';
+  };
+  $('ketTabel').innerHTML = kartu('petani') + kartu('penggilingan');
+  $('ketSelisih').textContent = rp(Number(p.hargaPenggiling) - Number(p.hargaPetani));
+  const dsr = dasarLok(p, p.lokasi), r2 = Number(p.rafKA);
+  $('ketContoh').innerHTML = '<b>Contoh:</b> 1.000 kg gabah, kadar air 27%, hampa 8%, ' + (p.lokasi === 'petani' ? 'di petani' : 'di penggilingan') +
+    ' &rarr; GLK-2 &rarr; ' + rp(dsr) + ' - ' + rp(r2) + ' = <b>' + rp(dsr - r2) + '/kg</b> &rarr; total <b>' + rp((dsr - r2) * 1000) + '</b>.';
+  ketHitung();
+}
+
+function ketHitung() {
+  if (!DATA) return;
+  const p = DATA.pengaturan, std = Number(p.kaStandar), mks = Number(p.kaLembab), o = $('cHasil');
+  if ($('cKA').value === '' || $('cHP').value === '') { o.textContent = 'Isi kadar air dan kadar hampa.'; return; }
+  const ka = Number($('cKA').value), hp = Number($('cHP').value), kg = Number($('cKg').value) || 0;
+  if (ka > mks || hp > 15) { o.textContent = '⚠ Di luar ketentuan harga (kadar air > ' + mks + '% atau hampa > 15%).'; return; }
+  const k = KEL[(ka > std ? 2 : 0) + (hp > 10 ? 1 : 0)], raf = k[2] ? Number(p[k[2]]) : 0, h = dasarLok(p, $('cLok').value) - raf;
+  o.textContent = k[0] + ' • ' + rp(h) + '/kg' + (raf ? ' (rafaksi -' + rp(raf) + ')' : '') + (kg ? ' • Total ' + rp(h * kg) : '');
+}
+
+// Muat ulang otomatis: saat kembali ke tab browser, dan tiap 2 menit sebagai cadangan
+document.addEventListener('visibilitychange', () => { if (!document.hidden && TOKEN) muat(true); });
+setInterval(() => { if (TOKEN && !document.hidden) muat(true); }, 120000);
+
+// ---------- LIVE ----------
+let hampaTs = 0, lokTs = 0, lokAktif = '', tabAktif = 'live', lastVer = null;
+function pakaiLokasi(l) {
+  const p = DATA ? DATA.pengaturan : null, on = 'px-4 py-2 bg-green-700 text-white', off = 'px-4 py-2 bg-white text-green-800';
+  $('bLokPetani').className = l === 'petani' ? on : off; $('bLokGiling').className = l === 'penggilingan' ? on : off;
+  if (p) { p.lokasi = l; $('lokInfo').textContent = 'Harga dasar ' + rp(dasarLok(p, l)) + '/kg • ' + (l === 'petani' ? 'Anda menjemput gabah' : 'Petani mengantar gabah'); }
+  if (l !== lokAktif) { lokAktif = l; ketRender(); }
+}
+async function pilihLokasi(l) {
+  try { await run('setLokasi', TOKEN, l); lokTs = Date.now(); pakaiLokasi(l); } catch (e) { alert(e.message); }
+}
+async function terapkanHampa(v0) {
+  const v = v0 !== undefined ? v0 : $('hIn').value;
+  if (v === '') { alert('Isi kadar hampa dulu (isi 0 jika gabah bersih).'); return; }
+  try {
+    await run('setHampa', TOKEN, v); hampaTs = Date.now(); $('hIn').value = v;
+    $('hMsg').textContent = '✓ Tersimpan, alat menerima dalam beberapa detik';
+  } catch (e) { alert(e.message); }
+}
+let liveOn = false, liveTimer = null, HIST = [], lastTs = 0, tampilB = 0, anim = 0, zonaKey = '';
+function mulaiLive() { if (liveOn) return; liveOn = true; pollLive(); }
+function henti() { liveOn = false; clearTimeout(liveTimer); }
+
+async function pollLive() {
+  if (!liveOn) return;
+  try { tampilLive(await run('ambilLive', TOKEN)); }
+  catch (e) {
+    if (/Sesi/.test(e.message || '')) { alert(e.message); location.reload(); return; }
+    $('lOn').textContent = 'Dashboard terputus, mencoba lagi...'; $('lDot').className = 'dot off';
+  }
+  liveTimer = setTimeout(pollLive, document.hidden ? 5000 : (tabAktif === 'live' ? 700 : 3000));
+}
+
+function tulisBerat(kg) {
+  if (kg >= 1) { $('lBerat').textContent = kg.toFixed(3); $('lSat').textContent = 'kg'; }
+  else { $('lBerat').textContent = (kg * 1000).toFixed(1); $('lSat').textContent = 'g'; }
+}
+function tween(to) {
+  const from = tampilB, t0 = performance.now(); cancelAnimationFrame(anim);
+  const f = t => {
+    const k = Math.min((t - t0) / 600, 1), e = 1 - Math.pow(1 - k, 3);
+    tampilB = from + (to - from) * e; tulisBerat(tampilB);
+    if (k < 1) anim = requestAnimationFrame(f);
+  };
+  anim = requestAnimationFrame(f);
+}
+
+const gp = f => { const a = Math.PI * (1 - f); return (100 + 80 * Math.cos(a)).toFixed(1) + ' ' + (100 - 80 * Math.sin(a)).toFixed(1); };
+const busur = (f1, f2, c) => '<path d="M ' + gp(f1) + ' A 80 80 0 0 1 ' + gp(f2) + '" stroke="' + c + '" stroke-width="14" fill="none"/>';
+const fKA = v => Math.min(Math.max((v - 10) / 25, 0), 1);
+function zona(s, m) {
+  const key = s + '-' + m; if (key === zonaKey) return; zonaKey = key;
+  $('gZona').innerHTML = busur(0, fKA(s), '#22c55e') + busur(fKA(s), fKA(m), '#facc15') + busur(fKA(m), 1, '#ef4444');
+}
+
+function spark(id, arr, warna) {
+  const n = arr.length; if (n < 2) { $(id).innerHTML = ''; return; }
+  let lo = Math.min(...arr), hi = Math.max(...arr); if (hi - lo < 0.01) { hi += 0.5; lo -= 0.5; }
+  const pts = arr.map((v, i) => (i / (n - 1) * 300).toFixed(1) + ',' + (55 - (v - lo) / (hi - lo) * 50).toFixed(1));
+  $(id).innerHTML = '<polygon points="0,60 ' + pts.join(' ') + ' 300,60" fill="' + warna + '" opacity=".15"/>' +
+    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + warna + '" stroke-width="2" vector-effect="non-scaling-stroke"/>';
+}
+
+function tampilLive(d) {
+  if (d.ver !== undefined) {                  // ada transaksi/ubah/hapus/pengaturan baru -> muat otomatis
+    if (lastVer !== null && d.ver !== lastVer) muat(true);
+    lastVer = d.ver;
+  }
+  if (d.lok && Date.now() - lokTs > 5000) pakaiLokasi(d.lok);
+  const online = d.ada && d.umur < 15000;
+  $('lDot').className = 'dot' + (online ? '' : ' off');
+  $('lHero').classList.toggle('off', !online);
+  if (!d.ada) { $('lOn').textContent = 'Alat belum pernah mengirim data'; $('lStatus').textContent = 'Menunggu alat...'; return; }
+  $('lOn').textContent = online ? 'Alat online' : 'Alat offline';
+  $('lInfo').textContent = 'Update ' + Math.round(d.umur / 1000) + ' dtk lalu • ADC ' + (d.a || '-') + ' • WiFi ' + d.r + ' dBm';
+  const P = DATA ? DATA.pengaturan : { kaStandar: 25, kaLembab: 30, rafHampa: 300, rafKA: 425, rafBoth: 750 };
+  const std = Number(P.kaStandar), mks = Number(P.kaLembab);
+  zona(std, mks);
+
+  if (d.ts !== lastTs) {
+    lastTs = d.ts;
+    const dif = HIST.length ? d.b - HIST[HIST.length - 1].b : 0;
+    HIST.push({ b: d.b, k: d.k }); if (HIST.length > 60) HIST.shift();
+    $('lTren').textContent = dif > 0.003 ? '▲' : dif < -0.003 ? '▼' : '';
+    $('lTren').style.color = dif > 0 ? '#86efac' : '#fca5a5';
+    tween(d.b);
+    spark('sB', HIST.map(x => x.b), '#16a34a'); spark('sK', HIST.map(x => x.k), '#ca8a04');
+  }
+  $('gJarum').style.transform = 'rotate(' + (-90 + fKA(d.k) * 180) + 'deg)';
+  $('lKa').textContent = d.k.toFixed(1) + '%';
+  const hpRaw = Number(d.hp), kosongHp = hpRaw < 0, hp = kosongHp ? 0 : (hpRaw || 0), luar = d.k > mks || hp > 15, air = d.k > std, hm = hp > 10;
+  const raf = luar ? 0 : air ? (hm ? Number(P.rafBoth) : Number(P.rafKA)) : (hm ? Number(P.rafHampa) : 0);
+  const mutu = luar ? ['DI LUAR KETENTUAN', '#fecaca', '#7f1d1d'] : air && hm ? ['GLK-3', '#fed7aa', '#7c2d12']
+    : air ? ['GLK-2', '#fef08a', '#713f12'] : hm ? ['GLK-1', '#fef08a', '#713f12'] : ['GKP', '#bbf7d0', '#14532d'];
+  if (kosongHp) { mutu[0] = 'ISI HAMPA'; mutu[1] = '#fecaca'; mutu[2] = '#7f1d1d'; }
+  $('hCard').classList.toggle('ring-2', kosongHp); $('hCard').classList.toggle('ring-red-500', kosongHp);
+  $('lMutu').textContent = mutu[0]; $('lMutu').style.background = mutu[1]; $('lMutu').style.color = mutu[2];
+  $('lHarga').textContent = rp(d.h); $('lTotal').textContent = rp(d.t);
+  $('lRaf').textContent = raf ? '-' + rp(raf) + '/kg' : 'Tidak ada'; $('lHamp').textContent = kosongHp ? 'Belum diisi' : hp.toFixed(1) + '%';
+  if (Date.now() - hampaTs > 20000 && document.activeElement !== $('hIn')) $('hIn').value = kosongHp ? '' : hp;
+  $('lStatus').textContent = !online ? 'Alat offline' : d.st === 2 ? '✅ Hasil terkirim ' + d.id
+    : d.st === 0 ? 'Timbangan kosong' : kosongHp ? '⚠ Isi kadar hampa dulu' : d.s ? '✔ Stabil - tekan tombol 1x' : '⏳ Menimbang...';
+}
+</script>
+</body>
+</html>
